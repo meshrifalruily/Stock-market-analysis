@@ -6,16 +6,16 @@ from datetime import datetime, timedelta
 
 # رموز تاسي الرئيسية
 TASI_SYMBOLS = {
-    "1120.SR": "Al Rajhi Bank",
-    "1180.SR": "SNB (Saudi National Bank)",
-    "2222.SR": "Saudi Aramco",
-    "2010.SR": "SABIC",
-    "7010.SR": "STC (Saudi Telecom)",
-    "1150.SR": "Alinma Bank",
-    "2350.SR": "Saudi Kayan",
-    "2020.SR": "SABIC Agri-Nutrients",
-    "4003.SR": "Extra",
-    "1010.SR": "Riyad Bank"
+    "1120.SR": "مصرف الراجحي",
+    "1180.SR": "البنك الأهلي السعودي",
+    "2222.SR": "أرامكو السعودية",
+    "2010.SR": "سابك",
+    "7010.SR": "إس تي سي (الاتصالات)",
+    "1150.SR": "مصرف الإنماء",
+    "2350.SR": "كيان السعودية",
+    "2020.SR": "سابك للمغذيات الزراعية",
+    "4003.SR": "إكسترا",
+    "1010.SR": "بنك الرياض"
 }
 
 # رموز المؤشرات الاقتصادية
@@ -61,6 +61,9 @@ def main():
         df = fetch_stock_data(symbol, name, is_macro=True)
         if df is not None:
             clean_name = symbol.replace('=', '_').replace('^', '')
+            # إزالة المنطقة الزمنية لتسهيل الدمج
+            if df.index.tz is not None:
+                df.index = df.index.tz_localize(None)
             df.to_csv(f"{DATA_DIR}/{clean_name}.csv")
             macro_dfs[symbol] = df['Close'].rename(f"Macro_{clean_name}")
 
@@ -71,6 +74,10 @@ def main():
     for symbol, name in TASI_SYMBOLS.items():
         df = fetch_stock_data(symbol, name)
         if df is not None:
+            # إزالة المنطقة الزمنية للتوافق
+            if df.index.tz is not None:
+                df.index = df.index.tz_localize(None)
+                
             if symbol == market_proxy_symbol:
                 market_proxy_df = df['Close'].rename("Macro_TASI_PROXY")
             
@@ -78,7 +85,8 @@ def main():
             for m_sym, m_series in macro_dfs.items():
                 m_clean = m_sym.replace('=', '_').replace('^', '')
                 df = df.join(m_series, how='left')
-                df[f"Macro_{m_clean}"] = df[f"Macro_{m_clean}"].ffill()
+                # تعبئة الفراغات (مهم جداً للنفط لأنه يغلق في أيام تختلف عن تاسي)
+                df[f"Macro_{m_clean}"] = df[f"Macro_{m_clean}"].ffill().bfill()
             
             df['Symbol'] = symbol
             all_data.append(df)
@@ -88,14 +96,18 @@ def main():
         for df in all_data:
             if market_proxy_df is not None:
                 df = df.join(market_proxy_df, how='left')
-                df["Macro_TASI_PROXY"] = df["Macro_TASI_PROXY"].ffill()
+                df["Macro_TASI_PROXY"] = df["Macro_TASI_PROXY"].ffill().bfill()
             
-            df.to_csv(f"{DATA_DIR}/{df['Symbol'].iloc[0]}.csv")
+            # حفظ الملف الفردي
+            df.to_csv(f"{DATA_DIR}/{symbol}.csv")
             final_list.append(df)
             
         combined_df = pd.concat(final_list)
         combined_df.to_csv("data/tasi_combined.csv")
-        print(f"تم حفظ البيانات المدمجة مع الميزات الاقتصادية وبديل المؤشر لـ {len(TASI_SYMBOLS)} شركة.")
+        
+        last_date = combined_df.index.max().strftime('%Y-%m-%d')
+        print(f"تم جلب ومعالجة البيانات بنجاح لـ {len(TASI_SYMBOLS)} شركة.")
+        print(f"أحدث تاريخ بيانات متوفر من ياهو فاينانس هو: {last_date}")
 
 if __name__ == "__main__":
     main()

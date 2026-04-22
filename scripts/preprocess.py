@@ -63,16 +63,15 @@ def calculate_advanced_metrics(df):
     
     # لم نعد نحذف الصفوف هنا للإبقاء على أحدث البيانات للتوقعات الحية
     return df
-
 def preprocess_all_data(combined_file_path, output_file_path):
     if not os.path.exists(combined_file_path):
         print(f"خطأ: {combined_file_path} غير موجود.")
         return
-    
+
     df = pd.read_csv(combined_file_path)
-    df['Date'] = pd.to_datetime(df['Date'], utc=True)
+    df['Date'] = pd.to_datetime(df['Date']).dt.tz_localize(None)
     df = df.sort_values(['Symbol', 'Date'])
-    
+
     processed_dfs = []
     for symbol, group in df.groupby('Symbol'):
         print(f"جاري معالجة المقاييس المتقدمة لـ {symbol}...")

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>منصة تاسي للذكاء الاصطناعي</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Tajawal', sans-serif; background-color: #f3f4f6; }
+        .gradient-green { background: linear-gradient(135deg, #059669 0%, #10b981 100%); }
+    </style>
+</head>
+<body class="text-gray-800">
+
+    <!-- Header -->
+    <header class="gradient-green text-white p-6 shadow-lg">
+        <div class="container mx-auto flex justify-between items-center">
+            <h1 class="text-3xl font-bold">🇸🇦 منصة تحليل الأسهم السعودية بالذكاء الاصطناعي</h1>
+            <div class="text-right">
+                <div class="text-sm font-bold">تاريخ البيانات: {{ data_date }}</div>
+                <div class="text-xs opacity-80">تحديث الجلسة: {{ last_update }}</div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container mx-auto mt-8 px-4">
+        
+        <!-- Backtest Section -->
+        {% if backtest %}
+        <section class="bg-white p-6 rounded-xl shadow-md mb-8 border-r-4 border-emerald-500">
+            <h2 class="text-2xl font-bold mb-4 text-emerald-700">🏆 أداء الاستراتيجية (آخر 6 أشهر)</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="bg-emerald-50 p-4 rounded-lg text-center">
+                    <div class="text-gray-600">العائد التاريخي</div>
+                    <div class="text-3xl font-bold text-emerald-600">{{ backtest.total_return }}%</div>
+                </div>
+                <div class="bg-gray-50 p-4 rounded-lg text-center">
+                    <div class="text-gray-600">رأس المال البدائي</div>
+                    <div class="text-3xl font-bold text-gray-700">100.00 ر.س</div>
+                </div>
+                <div class="bg-emerald-50 p-4 rounded-lg text-center">
+                    <div class="text-gray-600">القيمة الحالية</div>
+                    <div class="text-3xl font-bold text-emerald-600">{{ 100 + backtest.total_return }} ر.س</div>
+                </div>
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- Top 3 Picks -->
+        <h2 class="text-2xl font-bold mb-6 flex items-center">🎯 أفضل 3 شركات متوقعة للجلسة القادمة</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+            {% for stock in top_3 %}
+            <div class="bg-white p-6 rounded-2xl shadow-xl hover:scale-105 transition-transform border border-emerald-100">
+                <div class="flex justify-between items-start mb-4">
+                    <h3 class="text-xl font-bold text-emerald-800">{{ stock.company_name }}</h3>
+                    <span class="bg-emerald-100 text-emerald-700 px-2 py-1 rounded text-xs font-bold">{{ stock.symbol }}</span>
+                </div>
+                <div class="text-4xl font-bold text-emerald-600 mb-2">{{ stock.predicted_return }}%</div>
+                <div class="text-gray-500 text-sm mb-4">العائد المتوقع</div>
+                
+                <div class="space-y-2 border-t pt-4">
+                    <div class="flex justify-between text-sm">
+                        <span class="text-gray-600">نقطة الدخول:</span>
+                        <span class="font-bold">{{ stock.entry_point }} ر.س</span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                        <span class="text-gray-600">هدف الربح:</span>
+                        <span class="font-bold text-emerald-600">{{ stock.take_profit }} ر.س</span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                        <span class="text-gray-600">وقف الخسارة:</span>
+                        <span class="font-bold text-red-500">{{ stock.stop_loss }} ر.س</span>
+                    </div>
+                </div>
+                <div class="mt-4 pt-4 border-t flex justify-between items-center">
+                    <span class="text-xs text-gray-400">نسبة الربح/المخاطرة: {{ stock.rr_ratio }}</span>
+                    <span class="text-xs text-emerald-500 font-bold">نسبة شارب: {{ stock.sharpe }}</span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Full Table -->
+        <section class="bg-white rounded-xl shadow-md overflow-hidden mb-12">
+            <div class="p-6 border-b bg-gray-50 flex justify-between items-center">
+                <h2 class="text-xl font-bold text-gray-700">📊 جميع التوقعات ومقاييس المخاطر</h2>
+                <button onclick="updateData()" class="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition">🔄 تحديث البيانات</button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-right">
+                    <thead class="bg-gray-100 text-gray-600 text-sm">
+                        <tr>
+                            <th class="p-4">الشركة</th>
+                            <th class="p-4">السعر</th>
+                            <th class="p-4">العائد المتوقع</th>
+                            <th class="p-4">هدف الربح</th>
+                            <th class="p-4">وقف الخسارة</th>
+                            <th class="p-4">الربح/المخاطرة</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-200">
+                        {% for stock in predictions %}
+                        <tr class="hover:bg-gray-50 transition">
+                            <td class="p-4 font-bold">{{ stock.company_name }} ({{ stock.symbol }})</td>
+                            <td class="p-4">{{ stock.current_price }}</td>
+                            <td class="p-4 text-emerald-600 font-bold">{{ stock.predicted_return }}%</td>
+                            <td class="p-4 text-emerald-500">{{ stock.take_profit }}</td>
+                            <td class="p-4 text-red-500">{{ stock.stop_loss }}</td>
+                            <td class="p-4">{{ stock.rr_ratio }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        function updateData() {
+            if (confirm('هل تريد جلب أحدث البيانات وإعادة تدريب النموذج؟ قد يستغرق هذا بضع دقائق في الخلفية.')) {
+                fetch('/api/update', { method: 'POST' })
+                    .then(res => res.json())
+                    .then(data => alert(data.status));
+            }
+        }
+    </script>
+</body>
+</html>
