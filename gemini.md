@@ -1,0 +1,2 @@
+# This is an AI based stock market analysis app 
+### in this project we want to use AI to analyze Saudi Stock market TASI. We want the AI model to help us in predicting which best 3 companies are going to raise based on its prevoius day and tell us about the entering and exite points  
