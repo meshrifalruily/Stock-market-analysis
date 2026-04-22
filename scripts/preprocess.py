@@ -1,87 +1,87 @@
 import pandas as pd
 import numpy as np
+import pandas_ta as ta
 import os
 
-def calculate_technical_indicators(df):
-    """Calculates common technical indicators."""
+def calculate_advanced_metrics(df):
+    """حساب المؤشرات الفنية والمقاييس المالية الاحترافية."""
     
-    # Simple Moving Averages
-    df['SMA_20'] = df['Close'].rolling(window=20).mean()
-    df['SMA_50'] = df['Close'].rolling(window=50).mean()
-    df['SMA_200'] = df['Close'].rolling(window=200).mean()
+    # توحيد أسماء الأعمدة لتناسب مكتبة pandas-ta (أحرف صغيرة)
+    df_ta = df.copy()
+    df_ta.columns = [c.lower() for c in df_ta.columns]
     
-    # Exponential Moving Average
-    df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
+    # 1. مؤشرات الاتجاه
+    df['sma_20'] = ta.sma(df_ta['close'], length=20)
+    df['sma_50'] = ta.sma(df_ta['close'], length=50)
+    df['sma_200'] = ta.sma(df_ta['close'], length=200)
+    df['ema_20'] = ta.ema(df_ta['close'], length=20)
     
-    # RSI (Relative Strength Index)
-    delta = df['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-    rs = gain / loss
-    df['RSI'] = 100 - (100 / (1 + rs))
+    # 2. مؤشرات الزخم
+    df['rsi'] = ta.rsi(df_ta['close'], length=14)
+    macd = ta.macd(df_ta['close'])
+    if macd is not None:
+        df = pd.concat([df, macd], axis=1)
     
-    # MACD
-    ema_12 = df['Close'].ewm(span=12, adjust=False).mean()
-    ema_26 = df['Close'].ewm(span=26, adjust=False).mean()
-    df['MACD'] = ema_12 - ema_26
-    df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+    # 3. مؤشرات التقلب
+    df['atr'] = ta.atr(df_ta['high'], df_ta['low'], df_ta['close'], length=14)
+    bbands = ta.bbands(df_ta['close'], length=20)
+    if bbands is not None:
+        df = pd.concat([df, bbands], axis=1)
     
-    # ATR (Average True Range) for exit points
-    high_low = df['High'] - df['Low']
-    high_close = np.abs(df['High'] - df['Close'].shift())
-    low_close = np.abs(df['Low'] - df['Close'].shift())
-    ranges = pd.concat([high_low, high_close, low_close], axis=1)
-    true_range = np.max(ranges, axis=1)
-    df['ATR'] = true_range.rolling(14).mean()
+    # 4. مقاييس الأداء والمخاطر
+    df['daily_return'] = df_ta['close'].pct_change()
     
-    # Bollinger Bands (Institutional Volatility measure)
-    df['BB_Mid'] = df['Close'].rolling(window=20).mean()
-    df['BB_Std'] = df['Close'].rolling(window=20).std()
-    df['BB_Upper'] = df['BB_Mid'] + (df['BB_Std'] * 2)
-    df['BB_Lower'] = df['BB_Mid'] - (df['BB_Std'] * 2)
+    # نسبة شارب المتحركة (تقريبية سنوية)
+    df['sharpe_ratio_rolling'] = (df['daily_return'].rolling(window=20).mean() / 
+                                  df['daily_return'].rolling(window=20).std()) * np.sqrt(252)
     
-    # Support & Resistance (Recent Swing High/Low)
-    df['Support'] = df['Low'].rolling(window=50).min()
-    df['Resistance'] = df['High'].rolling(window=50).max()
+    # معامل بيتا بالنسبة لبديل تاسي (الراجحي)
+    tasi_col = 'Macro_TASI_PROXY'
+    if tasi_col in df.columns:
+        df['market_return'] = df[tasi_col].pct_change()
+        covariance = df['daily_return'].rolling(60).cov(df['market_return'])
+        variance = df['market_return'].rolling(60).var()
+        df['beta'] = covariance / variance
     
-    # Trend Strength (Simple ADX approximation)
-    up_move = df['High'].diff()
-    down_move = df['Low'].diff()
-    df['Plus_DI'] = 100 * (up_move.where((up_move > down_move) & (up_move > 0), 0).rolling(14).mean() / df['ATR'])
-    df['Minus_DI'] = 100 * (down_move.where((down_move > up_move) & (down_move > 0), 0).rolling(14).mean() / df['ATR'])
-    df['ADX'] = abs((df['Plus_DI'] - df['Minus_DI']) / (df['Plus_DI'] + df['Minus_DI'])) * 100
+    # الارتباط مع خام برنت
+    oil_col = 'Macro_BZ_F'
+    if oil_col in df.columns:
+        df['oil_return'] = df[oil_col].pct_change()
+        df['oil_correlation'] = df['daily_return'].rolling(60).corr(df['oil_return'])
+
+    # 5. الهدف: عائد اليوم التالي
+    df['target_next_day_return'] = df['daily_return'].shift(-1)
     
-    # Returns
-    df['Daily_Return'] = df['Close'].pct_change()
-    df['Weekly_Return'] = df['Close'].pct_change(5)
-    df['Monthly_Return'] = df['Close'].pct_change(21)
+    # توحيد أسماء الأعمدة
+    df.columns = [c.lower() for c in df.columns]
+    rename_dict = {
+        'macd_12_26_9': 'macd',
+        'macds_12_26_9': 'macd_signal',
+        'macdh_12_26_9': 'macd_hist'
+    }
+    df = df.rename(columns=rename_dict)
     
-    # Target: Next Day Return (Shifted)
-    df['Target_Next_Day_Return'] = df['Close'].pct_change().shift(-1)
-    
-    # Clean up (remove first few rows with NaN due to rolling windows)
-    # Ensure Company Name and Symbol are preserved
-    return df.dropna(subset=df.columns.difference(['Company Name', 'Symbol']))
+    # لم نعد نحذف الصفوف هنا للإبقاء على أحدث البيانات للتوقعات الحية
+    return df
 
 def preprocess_all_data(combined_file_path, output_file_path):
     if not os.path.exists(combined_file_path):
-        print(f"Error: {combined_file_path} not found.")
+        print(f"خطأ: {combined_file_path} غير موجود.")
         return
     
     df = pd.read_csv(combined_file_path)
-    # Convert 'Date' to datetime and set as index (if applicable)
     df['Date'] = pd.to_datetime(df['Date'], utc=True)
     df = df.sort_values(['Symbol', 'Date'])
     
     processed_dfs = []
     for symbol, group in df.groupby('Symbol'):
-        print(f"Processing indicators for {symbol}...")
-        processed_group = calculate_technical_indicators(group.copy())
+        print(f"جاري معالجة المقاييس المتقدمة لـ {symbol}...")
+        processed_group = calculate_advanced_metrics(group.copy())
         processed_dfs.append(processed_group)
     
     final_df = pd.concat(processed_dfs)
     final_df.to_csv(output_file_path, index=False)
-    print(f"Preprocessed data saved to {output_file_path}")
+    print(f"تم حفظ البيانات المعالجة المتقدمة في {output_file_path}")
 
 if __name__ == "__main__":
     preprocess_all_data("data/tasi_combined.csv", "data/tasi_processed.csv")

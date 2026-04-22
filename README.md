@@ -1,41 +1,35 @@
-# TASI AI Stock Prediction App
+# منصة التحليل المالي للأسهم السعودية (TASI) بالذكاء الاصطناعي
 
-This project uses AI to analyze the Saudi Stock Market (TASI). It predicts the top 3 companies likely to rise on the next trading day and provides entry, take-profit, and stop-loss points.
+أداة احترافية مدعومة بالذكاء الاصطناعي لتحليل وتوقع حركة سوق الأسهم السعودي.
 
-## Project Structure
-- `data/`: Contains raw and processed stock data.
-- `models/`: Contains the trained Random Forest model and feature definitions.
-- `scripts/`:
-    - `fetch_data.py`: Downloads historical data from Yahoo Finance.
-    - `preprocess.py`: Calculates technical indicators (SMA, RSI, MACD, ATR).
-    - `train_model.py`: Trains the Random Forest model to predict next-day returns.
-- `app/`:
-    - `main.py`: The Streamlit dashboard.
+## المميزات الرئيسية
+- **اختيارات المؤسسات**: تحديد أفضل 3 أسهم للجلسة القادمة بناءً على العوائد المعدلة حسب المخاطر.
+- **مؤشرات فنية متقدمة**: استخدام مكتبة `pandas-ta` لحساب المؤشرات مثل RSI، MACD، Bollinger Bands، ATR، و SMA.
+- **مقاييس المخاطر**: حساب نسبة شارب (Sharpe Ratio)، ومعامل بيتا (Beta) بالنسبة لمصرف الراجحي، وارتباطات النفط.
+- **العوامل الاقتصادية الكلية**: دمج سعر خام برنت كمحرك أساسي للسوق.
+- **الاختبار العكسي (Backtesting)**: يتضمن محاكاة لمدة 6 أشهر لاستراتيجية "أفضل 3 أسهم" مع احتساب عمولات التداول (0.155%).
+- **لوحة تحكم تفاعلية**: واجهة مستخدم حديثة تدعم اللغة العربية والاتجاه من اليمين إلى اليسار (RTL).
 
-## How to Run
+## كيفية التشغيل
 
-### 1. Install Dependencies
+### 1. تثبيت المتطلبات
 ```bash
-python3 -m pip install yfinance pandas numpy plotly streamlit scikit-learn joblib
+python3 -m pip install yfinance pandas numpy plotly streamlit scikit-learn joblib pandas-ta quantstats matplotlib seaborn
 ```
 
-### 2. Update Data and Train Model
-Run these scripts in order to get the latest data and refresh the AI model:
+### 2. تحديث البيانات والاستراتيجية
+سيقوم هذا الأمر بجلب بيانات جديدة، حساب المؤشرات، إعادة تدريب النموذج، وتشغيل الاختبار العكسي:
 ```bash
-python3 scripts/fetch_data.py
-python3 scripts/preprocess.py
-python3 scripts/train_model.py
+python3 scripts/fetch_data.py && python3 scripts/preprocess.py && python3 scripts/train_model.py && python3 scripts/backtest.py
 ```
 
-### 3. Launch the App
+### 3. تشغيل التطبيق
 ```bash
 streamlit run app/main.py
 ```
 
-## AI Model & Logic
-- **Model**: Random Forest Regressor.
-- **Features**: Close price, Volume, SMAs (20, 50, 200), RSI, MACD, and ATR.
-- **Prediction**: The model predicts the percentage return for the next trading day.
-- **Entry Point**: Current closing price.
-- **Take Profit**: Based on the predicted return.
-- **Stop Loss**: Calculated as `Current Price - 2 * ATR` to allow for normal volatility.
+## منطق الاستراتيجية
+- **الدخول**: سعر الإغلاق الحالي.
+- **هدف الربح**: هدف ديناميكي يعتمد على العائد المتوقع ونطاق بولينجر العلوي.
+- **وقف الخسارة**: 1.5 * ATR (المعيار المؤسسي) أو نطاق بولينجر السفلي.
+- **الثقة**: يتم ترجيح اختيارات النموذج بواسطة نسبة شارب لضمان الاستقرار.
