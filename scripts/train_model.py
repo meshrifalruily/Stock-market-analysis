@@ -17,7 +17,7 @@ def train_tasi_model(processed_file_path, model_output_path):
         'close', 'volume', 'sma_20', 'sma_50', 'sma_200', 
         'ema_20', 'rsi', 'macd', 'macd_signal', 'atr',
         'pe_ratio', 'div_yield', 'beta', 'oil_correlation',
-        'macro_bz_f', 'macro_tasi_proxy'
+        'macro_bz_f', 'macro_tasi_proxy', 'tv_signal', 'tv_adx'
     ]
     
     # معالجة القيم المفقودة في البيانات الأساسية (التعبئة بالوسيط)

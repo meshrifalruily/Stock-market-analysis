@@ -50,7 +50,7 @@ def load_data_and_model():
         model = joblib.load(MODEL_PATH)
         features = joblib.load(FEATURES_PATH)
         df = pd.read_csv(DATA_PATH)
-        # Convert to datetime without timezone to match scripts
+        # تحويل التاريخ والتأكد من أنه بدون منطقة زمنية تماماً
         df['date'] = pd.to_datetime(df['date']).dt.tz_localize(None)
         df['اسم الشركة'] = df['symbol'].map(ARABIC_NAMES).fillna(df['company name'])
         return df, model, features
@@ -158,10 +158,11 @@ async def get_predictions():
 async def update_data(background_tasks: BackgroundTasks):
     def run_scripts():
         try:
-            subprocess.run([sys.executable, "scripts/fetch_data.py"], check=True)
-            subprocess.run([sys.executable, "scripts/preprocess.py"], check=True)
-            subprocess.run([sys.executable, "scripts/train_model.py"], check=True)
-            subprocess.run([sys.executable, "scripts/backtest.py"], check=True)
+            # استخدام ROOT_DIR لضمان الوصول للمجلد الصحيح
+            subprocess.run([sys.executable, os.path.join(ROOT_DIR, "scripts/fetch_data.py")], check=True)
+            subprocess.run([sys.executable, os.path.join(ROOT_DIR, "scripts/preprocess.py")], check=True)
+            subprocess.run([sys.executable, os.path.join(ROOT_DIR, "scripts/train_model.py")], check=True)
+            subprocess.run([sys.executable, os.path.join(ROOT_DIR, "scripts/backtest.py")], check=True)
             print("DEBUG: Background Update complete")
         except Exception as e:
             print(f"DEBUG: Background Update failed: {e}")

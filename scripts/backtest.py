@@ -10,7 +10,8 @@ def run_backtest(processed_file_path, model_path, features_path):
         return
     
     df = pd.read_csv(processed_file_path)
-    df['date'] = pd.to_datetime(df['date'], utc=True)
+    # تحويل التاريخ والتجريد من المنطقة الزمنية فوراً
+    df['date'] = pd.to_datetime(df['date']).dt.tz_localize(None)
     model = joblib.load(model_path)
     features = joblib.load(features_path)
     
@@ -51,15 +52,23 @@ def run_backtest(processed_file_path, model_path, features_path):
         return
 
     perf_df = pd.DataFrame(portfolio_history).set_index('date')
-    benchmark_df = df[df['symbol'] == '1120.SR'][['date', 'daily_return']].copy()
-    benchmark_df['date'] = pd.to_datetime(benchmark_df['date'], utc=True)
-    benchmark = benchmark_df[benchmark_df['date'].isin(perf_df.index)].set_index('date')['daily_return']
     
+    # تجهيز المعيار (الراجحي) وتجريده من المنطقة الزمنية
+    benchmark_df = df[df['symbol'] == '1120.SR'][['date', 'daily_return']].copy()
+    benchmark_df['date'] = pd.to_datetime(benchmark_df['date']).dt.tz_localize(None)
+    benchmark = benchmark_df.set_index('date')['daily_return']
+    
+    # تنظيف المكررات وتوحيد الفهرس
     perf_df = perf_df[~perf_df.index.duplicated(keep='first')]
     benchmark = benchmark[~benchmark.index.duplicated(keep='first')]
+    
     common_idx = perf_df.index.intersection(benchmark.index)
     returns_series = perf_df.loc[common_idx, 'returns']
     benchmark_series = benchmark.loc[common_idx]
+
+    # التأكد النهائي من أن الفهارس لا تملك أي منطقة زمنية
+    returns_series.index = returns_series.index.tz_localize(None)
+    benchmark_series.index = benchmark_series.index.tz_localize(None)
 
     print("\n--- نتائج الاختبار العكسي (آخر 6 أشهر) ---")
     print(f"قيمة المحفظة النهائية: {portfolio_value:.2f}")
@@ -69,12 +78,12 @@ def run_backtest(processed_file_path, model_path, features_path):
         os.makedirs("reports")
     
     try:
+        # QuantStats report (HTML)
         qs.reports.html(returns_series, benchmark=benchmark_series, output='reports/tasi_ai_backtest_report.html', title='استراتيجية تاسي الذكية ضد المعيار')
-        print("تم حفظ التقرير الكامل في reports/tasi_ai_backtest_report.html")
+        print("تم حفظ التقرير الكامل بنجاح في reports/tasi_ai_backtest_report.html")
     except Exception as e:
-        print(f"لم يتمكن النظام من توليد تقرير HTML: {e}")
+        print(f"خطأ أثناء توليد HTML: {e}")
         print(f"نسبة شارب: {qs.stats.sharpe(returns_series):.2f}")
-        print(f"أقصى تراجع: {qs.stats.max_drawdown(returns_series)*100:.2f}%")
     
     perf_df.to_csv("data/backtest_results.csv")
 
