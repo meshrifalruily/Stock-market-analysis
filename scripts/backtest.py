@@ -10,7 +10,10 @@ def run_backtest(processed_file_path, model_path, features_path):
         return
     
     df = pd.read_csv(processed_file_path)
-    df['date'] = pd.to_datetime(df['date'], utc=True)
+    
+    # تحويل التاريخ وتجريده من المنطقة الزمنية فوراً وبشكل صارم
+    df['date'] = pd.to_datetime(df['date']).dt.tz_localize(None)
+    
     model = joblib.load(model_path)
     features = joblib.load(features_path)
     
@@ -39,11 +42,13 @@ def run_backtest(processed_file_path, model_path, features_path):
             next_day_stock = next_day_all[next_day_all['symbol'] == symbol]
             if not next_day_stock.empty:
                 actual_ret = next_day_stock['daily_return'].values[0]
-                net_ret = actual_ret - (COMMISSION * 2) 
-                daily_returns.append(net_ret)
+                if not pd.isna(actual_ret):
+                    net_ret = actual_ret - (COMMISSION * 2) 
+                    daily_returns.append(net_ret)
         
         avg_daily_ret = np.mean(daily_returns) if daily_returns else 0
-        portfolio_value *= (1 + avg_daily_ret)
+        if not pd.isna(avg_daily_ret):
+            portfolio_value *= (1 + avg_daily_ret)
         portfolio_history.append({'date': next_date, 'returns': avg_daily_ret, 'value': portfolio_value})
 
     if not portfolio_history:
@@ -51,15 +56,25 @@ def run_backtest(processed_file_path, model_path, features_path):
         return
 
     perf_df = pd.DataFrame(portfolio_history).set_index('date')
-    benchmark_df = df[df['symbol'] == '1120.SR'][['date', 'daily_return']].copy()
-    benchmark_df['date'] = pd.to_datetime(benchmark_df['date'], utc=True)
-    benchmark = benchmark_df[benchmark_df['date'].isin(perf_df.index)].set_index('date')['daily_return']
+    # تجريد المنطقة الزمنية من الفهرس
+    perf_df.index = pd.to_datetime(perf_df.index).tz_localize(None)
     
+    # تجهيز المعيار (الراجحي) وتجريده من المنطقة الزمنية
+    benchmark_df = df[df['symbol'] == '1120.SR'][['date', 'daily_return']].copy()
+    benchmark_df['date'] = pd.to_datetime(benchmark_df['date']).dt.tz_localize(None)
+    benchmark = benchmark_df.set_index('date')['daily_return']
+    
+    # تنظيف المكررات وتوحيد الفهرس
     perf_df = perf_df[~perf_df.index.duplicated(keep='first')]
     benchmark = benchmark[~benchmark.index.duplicated(keep='first')]
+    
     common_idx = perf_df.index.intersection(benchmark.index)
     returns_series = perf_df.loc[common_idx, 'returns']
     benchmark_series = benchmark.loc[common_idx]
+
+    # التأكد النهائي الحاسم من تجريد المناطق الزمنية
+    returns_series.index = returns_series.index.tz_localize(None)
+    benchmark_series.index = benchmark_series.index.tz_localize(None)
 
     print("\n--- نتائج الاختبار العكسي (آخر 6 أشهر) ---")
     print(f"قيمة المحفظة النهائية: {portfolio_value:.2f}")
@@ -69,14 +84,15 @@ def run_backtest(processed_file_path, model_path, features_path):
         os.makedirs("reports")
     
     try:
+        # إرسال البيانات كـ Series "خام" تماماً
         qs.reports.html(returns_series, benchmark=benchmark_series, output='reports/tasi_ai_backtest_report.html', title='استراتيجية تاسي الذكية ضد المعيار')
-        print("تم حفظ التقرير الكامل في reports/tasi_ai_backtest_report.html")
+        print("تم حفظ التقرير الكامل بنجاح في reports/tasi_ai_backtest_report.html")
     except Exception as e:
-        print(f"لم يتمكن النظام من توليد تقرير HTML: {e}")
+        print(f"خطأ أثناء توليد HTML: {e}")
         print(f"نسبة شارب: {qs.stats.sharpe(returns_series):.2f}")
-        print(f"أقصى تراجع: {qs.stats.max_drawdown(returns_series)*100:.2f}%")
     
     perf_df.to_csv("data/backtest_results.csv")
 
 if __name__ == "__main__":
-    run_backtest("data/tasi_processed.csv", "models/tasi_rf_model.joblib", "models/feature_names.joblib")
+    # استخدام النموذج اليومي الجديد للاختبار العكسي
+    run_backtest("data/tasi_processed.csv", "models/tasi_rf_model_daily.joblib", "models/feature_names.joblib")
