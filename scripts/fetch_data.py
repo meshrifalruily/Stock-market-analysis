@@ -3,9 +3,12 @@ import pandas as pd
 import os
 import numpy as np
 from datetime import datetime, timedelta
+from io import StringIO
+import ssl
+from urllib.request import Request, urlopen
 
-# قائمة موسعة لشركات تاسي (20 شركة كبرى لعمل Heatmap)
-TASI_SYMBOLS = {
+# قائمة احتياطية إذا تعذر جلب قائمة السوق الكاملة من الإنترنت
+FALLBACK_TASI_SYMBOLS = {
     "1120.SR": {"name": "مصرف الراجحي", "sector": "البنوك"},
     "1180.SR": {"name": "الأهلي السعودي", "sector": "البنوك"},
     "2222.SR": {"name": "أرامكو السعودية", "sector": "الطاقة"},
@@ -30,12 +33,93 @@ TASI_SYMBOLS = {
 
 MACRO_SYMBOLS = {"BZ=F": "Brent Oil"}
 DATA_DIR = "data/raw"
+UNIVERSE_CACHE_PATH = "data/tasi_universe.csv"
+STOCK_UNIVERSE_URL = "https://stockanalysis.com/list/saudi-stock-exchange/"
+FETCH_FUNDAMENTALS = os.getenv("TASI_FETCH_FUNDAMENTALS", "0") == "1"
 
-def get_sentiment_score(symbol):
-    """محاكاة لتحليل المشاعر بناءً على حجم التداول والعوائد الأخيرة."""
-    # في نسخة متقدمة، يمكن هنا كشط أخبار 'أرقام' أو 'تويتر'
-    # حالياً سنستخدم منطقاً يعتمد على تدفق السيولة (Volume Flow)
-    return np.random.uniform(0.1, 0.9) # قيمة تجريبية سيتم استبدالها بتحليل حقيقي لاحقاً
+def normalize_saudi_symbol(symbol):
+    symbol = str(symbol).strip()
+    if symbol.endswith(".SR"):
+        return symbol
+    if symbol.isdigit():
+        return f"{symbol}.SR"
+    return symbol
+
+def load_symbol_universe():
+    """تحميل كل رموز السوق المتاحة مع كاش محلي واحتياطي عند فشل الإنترنت."""
+    if os.path.exists(UNIVERSE_CACHE_PATH):
+        cached = pd.read_csv(UNIVERSE_CACHE_PATH)
+        if {'symbol', 'name', 'sector'}.issubset(cached.columns) and not cached.empty:
+            return {
+                row['symbol']: {'name': row['name'], 'sector': row['sector']}
+                for _, row in cached.iterrows()
+            }
+
+    try:
+        try:
+            request = Request(STOCK_UNIVERSE_URL, headers={"User-Agent": "Mozilla/5.0"})
+            with urlopen(request, timeout=30) as response:
+                html = response.read().decode("utf-8")
+        except Exception:
+            try:
+                context = ssl._create_unverified_context()
+                request = Request(STOCK_UNIVERSE_URL, headers={"User-Agent": "Mozilla/5.0"})
+                with urlopen(request, timeout=30, context=context) as response:
+                    html = response.read().decode("utf-8")
+            except Exception:
+                from curl_cffi import requests
+                response = requests.get(STOCK_UNIVERSE_URL, impersonate="chrome", timeout=30)
+                response.raise_for_status()
+                html = response.text
+
+        tables = pd.read_html(StringIO(html))
+        universe_table = next(
+            table for table in tables
+            if {'Symbol', 'Company Name'}.issubset(set(table.columns))
+        )
+        universe = {}
+        for _, row in universe_table.iterrows():
+            symbol = normalize_saudi_symbol(row['Symbol'])
+            if not symbol.endswith(".SR"):
+                continue
+            universe[symbol] = {
+                'name': str(row['Company Name']).strip(),
+                'sector': 'غير مصنف'
+            }
+
+        if universe:
+            os.makedirs(os.path.dirname(UNIVERSE_CACHE_PATH), exist_ok=True)
+            pd.DataFrame([
+                {'symbol': symbol, 'name': info['name'], 'sector': info['sector']}
+                for symbol, info in sorted(universe.items())
+            ]).to_csv(UNIVERSE_CACHE_PATH, index=False)
+            print(f"تم تحميل قائمة السوق الموسعة: {len(universe)} رمز.")
+            return universe
+    except Exception as e:
+        print(f"تعذر تحميل قائمة السوق الموسعة، سيتم استخدام القائمة الاحتياطية: {e}")
+
+    return FALLBACK_TASI_SYMBOLS
+
+def apply_universe_limit(symbols):
+    limit = os.getenv("TASI_MAX_SYMBOLS", "").strip()
+    if not limit:
+        return symbols
+    try:
+        limit_value = int(limit)
+    except ValueError:
+        return symbols
+    limited = dict(list(symbols.items())[:limit_value])
+    print(f"تم تحديد عدد الرموز مؤقتاً إلى {len(limited)} عبر TASI_MAX_SYMBOLS.")
+    return limited
+
+def calculate_liquidity_sentiment(df):
+    """درجة حتمية مبنية على تدفق السيولة والزخم بدلاً من رقم عشوائي."""
+    close = df['Close']
+    volume = df['Volume'].replace(0, np.nan)
+    ret_5d = close.pct_change(5).fillna(0)
+    vol_ratio = (volume / volume.rolling(20, min_periods=5).mean()).replace([np.inf, -np.inf], np.nan).fillna(1.0)
+    raw_score = 0.5 + (ret_5d * 3.0) + ((vol_ratio - 1.0) * 0.12)
+    return raw_score.clip(0.05, 0.95)
 
 def fetch_stock_data(symbol, info_dict, is_macro=False):
     today = datetime.now()
@@ -53,16 +137,17 @@ def fetch_stock_data(symbol, info_dict, is_macro=False):
         if df.index.tz is not None: df.index = df.index.tz_localize(None)
 
         if not is_macro:
-            ticker = yf.Ticker(symbol)
-            info = ticker.info
+            info = {}
+            if FETCH_FUNDAMENTALS:
+                ticker = yf.Ticker(symbol)
+                info = ticker.info
             df['PE_Ratio'] = info.get('trailingPE', np.nan)
             df['Div_Yield'] = info.get('dividendYield', 0.0)
             df['Market_Cap'] = info.get('marketCap', np.nan)
             df['Symbol'] = symbol
             df['Company Name'] = name
-            df['Sector'] = info_dict['sector']
-            # إضافة درجة المشاعر
-            df['Sentiment'] = get_sentiment_score(symbol)
+            df['Sector'] = info.get('sector') or info_dict['sector']
+            df['Sentiment'] = calculate_liquidity_sentiment(df)
             
         return df
     except Exception as e:
@@ -71,6 +156,7 @@ def fetch_stock_data(symbol, info_dict, is_macro=False):
 
 def main():
     if not os.path.exists(DATA_DIR): os.makedirs(DATA_DIR)
+    tasi_symbols = apply_universe_limit(load_symbol_universe())
     
     macro_dfs = {}
     for symbol, name in MACRO_SYMBOLS.items():
@@ -84,7 +170,7 @@ def main():
     market_proxy_df = None
     stocks_data = {}
 
-    for symbol, info in TASI_SYMBOLS.items():
+    for symbol, info in tasi_symbols.items():
         df = fetch_stock_data(symbol, info)
         if df is not None:
             if symbol == market_proxy_symbol:

@@ -20,7 +20,12 @@ MODEL_DAILY_PATH = os.path.join(ROOT_DIR, "models/tasi_rf_model_daily.joblib")
 MODEL_WEEKLY_PATH = os.path.join(ROOT_DIR, "models/tasi_rf_model_weekly.joblib")
 DATA_PATH = os.path.join(ROOT_DIR, "data/tasi_processed.csv")
 FEATURES_PATH = os.path.join(ROOT_DIR, "models/feature_names.joblib")
+FEATURE_MEDIANS_PATH = os.path.join(ROOT_DIR, "models/feature_medians.joblib")
 BACKTEST_PATH = os.path.join(ROOT_DIR, "data/backtest_results.csv")
+MIN_DAILY_BUY_RETURN = 0.002
+MIN_WEEKLY_BUY_RETURN = 0.006
+MIN_AVG_TRADED_VALUE = float(os.getenv("TASI_MIN_AVG_TRADED_VALUE", "1000000"))
+HEATMAP_LIMIT = int(os.getenv("TASI_HEATMAP_LIMIT", "60"))
 
 # Arabic Names Mapping
 ARABIC_NAMES = {
@@ -37,16 +42,23 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 def load_system_assets():
     if not all(os.path.exists(p) for p in [MODEL_DAILY_PATH, MODEL_WEEKLY_PATH, DATA_PATH]):
-        return None, None, None, None
+        return None, None, None, None, None
     try:
         m_daily = joblib.load(MODEL_DAILY_PATH)
         m_weekly = joblib.load(MODEL_WEEKLY_PATH)
         features = joblib.load(FEATURES_PATH)
+        feature_medians = joblib.load(FEATURE_MEDIANS_PATH) if os.path.exists(FEATURE_MEDIANS_PATH) else None
         df = pd.read_csv(DATA_PATH)
         df['date'] = pd.to_datetime(df['date']).dt.tz_localize(None)
         df['اسم الشركة'] = df['symbol'].map(ARABIC_NAMES).fillna(df['company name'])
-        return df, m_daily, m_weekly, features
-    except: return None, None, None, None
+        return df, m_daily, m_weekly, features, feature_medians
+    except: return None, None, None, None, None
+
+def prepare_prediction_features(rows, features, medians):
+    X = rows[features].replace([np.inf, -np.inf], np.nan)
+    if medians is not None:
+        X = X.fillna(medians)
+    return X.fillna(0)
 
 def get_xai_reason(row):
     reasons = []
@@ -56,8 +68,36 @@ def get_xai_reason(row):
     if row['oil_correlation'] > 0.6: reasons.append("دعم النفط")
     return " + ".join(reasons[:2]) if reasons else "نمط فني صاعد"
 
+def build_trade_setup(current_price, atr, p_daily, p_weekly, is_liquid=True):
+    daily_target = current_price * (1 + p_daily) if p_daily > MIN_DAILY_BUY_RETURN else None
+    weekly_target = current_price * (1 + p_weekly) if p_weekly > MIN_WEEKLY_BUY_RETURN else None
+    stop_price = current_price - (1.5 * atr) if atr > 0 else current_price * 0.97
+    is_actionable = is_liquid and (daily_target is not None or weekly_target is not None)
+
+    if not is_liquid:
+        action = "سيولة منخفضة"
+        action_class = "avoid"
+    elif daily_target is not None:
+        action = "شراء"
+        action_class = "buy"
+    elif weekly_target is not None:
+        action = "مراقبة للمدى الأسبوعي"
+        action_class = "watch"
+    else:
+        action = "انتظار"
+        action_class = "avoid"
+
+    return {
+        "target_daily": daily_target,
+        "target_weekly": weekly_target,
+        "stop": stop_price,
+        "is_actionable": is_actionable,
+        "action": action,
+        "action_class": action_class,
+    }
+
 def get_market_intelligence():
-    df, m_daily, m_weekly, features = load_system_assets()
+    df, m_daily, m_weekly, features, feature_medians = load_system_assets()
     if df is None: return []
 
     latest_data = []
@@ -65,7 +105,7 @@ def get_market_intelligence():
         group = group.sort_values('date')
         latest_row = group.iloc[-1:].copy()
         
-        X = latest_row[features].fillna(0)
+        X = prepare_prediction_features(latest_row, features, feature_medians)
         p_daily = float(m_daily.predict(X)[0])
         p_weekly = float(m_weekly.predict(X)[0])
         
@@ -74,16 +114,15 @@ def get_market_intelligence():
         atr = float(latest_row['atr'].values[0]) if 'atr' in latest_row.columns and not pd.isna(latest_row['atr'].values[0]) else 0
         sentiment_val = float(latest_row['sentiment'].values[0]) if 'sentiment' in latest_row.columns and not pd.isna(latest_row['sentiment'].values[0]) else 0.5
         current_sector = latest_row['sector'].values[0] if 'sector' in latest_row.columns else "عام"
+        avg_traded_value = (
+            float(latest_row['avg_traded_value_20d'].values[0])
+            if 'avg_traded_value_20d' in latest_row.columns and not pd.isna(latest_row['avg_traded_value_20d'].values[0])
+            else 0
+        )
+        is_liquid = avg_traded_value >= MIN_AVG_TRADED_VALUE
         
-        # حساب الأهداف السعرية
-        target_daily = current_price * (1 + p_daily)
-        target_weekly = current_price * (1 + p_weekly)
-        stop_price = current_price - (1.5 * atr)
-        
-        # التأكد من أن الأرقام صالحة وليست nan
-        target_daily = target_daily if not np.isnan(target_daily) else current_price * 1.01
-        target_weekly = target_weekly if not np.isnan(target_weekly) else current_price * 1.03
-        stop_price = stop_price if not np.isnan(stop_price) else current_price * 0.97
+        setup = build_trade_setup(current_price, atr, p_daily, p_weekly, is_liquid)
+        stop_price = setup['stop'] if not np.isnan(setup['stop']) else current_price * 0.97
 
         latest_data.append({
             'company_name': name,
@@ -95,17 +134,26 @@ def get_market_intelligence():
             'predicted_daily': round(p_daily * 100, 2),
             'predicted_weekly': round(p_weekly * 100, 2),
             'entry': round(current_price, 2),
-            'target_daily': round(target_daily, 2),
-            'target_weekly': round(target_weekly, 2),
+            'target_daily': round(setup['target_daily'], 2) if setup['target_daily'] is not None else None,
+            'target_weekly': round(setup['target_weekly'], 2) if setup['target_weekly'] is not None else None,
             'stop': round(stop_price, 2),
-            'sharpe': round(float(latest_row['sharpe_ratio_rolling'].values[0]), 2) if 'sharpe_ratio_rolling' in latest_row.columns else 0
+            'sharpe': round(float(latest_row['sharpe_ratio_rolling'].values[0]), 2) if 'sharpe_ratio_rolling' in latest_row.columns else 0,
+            'is_actionable': setup['is_actionable'],
+            'action': setup['action'],
+            'action_class': setup['action_class'],
+            'is_liquid': is_liquid,
+            'avg_traded_value_20d': round(avg_traded_value, 0)
         })
     
-    return sorted(latest_data, key=lambda x: x['predicted_daily'], reverse=True)
+    return sorted(
+        latest_data,
+        key=lambda x: (x['is_actionable'], x['predicted_daily'], x['predicted_weekly']),
+        reverse=True
+    )
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
-    df, _, _, _ = load_system_assets()
+    df, _, _, _, _ = load_system_assets()
     intelligence = get_market_intelligence()
     
     # تحليلات إضافية للواجهة
@@ -113,6 +161,8 @@ async def read_root(request: Request):
     if intelligence:
         pdf = pd.DataFrame(intelligence)
         sectors = pdf.groupby('sector')['predicted_daily'].mean().to_dict()
+    top_3 = [stock for stock in intelligence if stock['is_actionable']][:3]
+    heatmap_predictions = intelligence[:HEATMAP_LIMIT]
 
     data_date = df['date'].max().strftime('%Y-%m-%d') if df is not None else "N/A"
     
@@ -124,8 +174,10 @@ async def read_root(request: Request):
     return templates.TemplateResponse(
         request=request, name="index.html",
         context={
-            "request": request, "predictions": intelligence, "top_3": intelligence[:3],
+            "request": request, "predictions": intelligence,
+            "top_3": top_3, "heatmap_predictions": heatmap_predictions,
             "sectors": sectors, "backtest": backtest, "data_date": data_date,
+            "coverage_count": len(intelligence),
             "last_update": datetime.now().strftime("%H:%M")
         }
     )
