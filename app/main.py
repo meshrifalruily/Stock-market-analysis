@@ -22,8 +22,10 @@ DATA_PATH = os.path.join(ROOT_DIR, "data/tasi_processed.csv")
 FEATURES_PATH = os.path.join(ROOT_DIR, "models/feature_names.joblib")
 FEATURE_MEDIANS_PATH = os.path.join(ROOT_DIR, "models/feature_medians.joblib")
 BACKTEST_PATH = os.path.join(ROOT_DIR, "data/backtest_results.csv")
-MIN_DAILY_BUY_RETURN = 0.002
-MIN_WEEKLY_BUY_RETURN = 0.006
+MIN_DAILY_BUY_RETURN = 0.005
+MIN_WEEKLY_BUY_RETURN = 0.018 # المتوافق مع الاختبار العكسي الناجح
+MARKET_BREATH_ENTRY = 0.4
+MARKET_BREATH_EXIT = 0.2
 MIN_AVG_TRADED_VALUE = float(os.getenv("TASI_MIN_AVG_TRADED_VALUE", "1000000"))
 HEATMAP_LIMIT = int(os.getenv("TASI_HEATMAP_LIMIT", "60"))
 
@@ -101,6 +103,12 @@ def get_market_intelligence():
     if df is None: return []
 
     latest_data = []
+    
+    # جلب حالة السوق العامة
+    current_date_max = df['date'].max()
+    market_row = df[df['date'] == current_date_max]
+    market_breadth = market_row['market_breadth_sma50'].iloc[0] if 'market_breadth_sma50' in market_row.columns else 0.5
+    
     for (symbol, name), group in df.groupby(['symbol', 'اسم الشركة']):
         group = group.sort_values('date')
         latest_row = group.iloc[-1:].copy()
@@ -122,6 +130,21 @@ def get_market_intelligence():
         is_liquid = avg_traded_value >= MIN_AVG_TRADED_VALUE
         
         setup = build_trade_setup(current_price, atr, p_daily, p_weekly, is_liquid)
+        
+        # تعديل الحالة بناءً على وضع السوق
+        action = setup['action']
+        is_actionable = setup['is_actionable']
+        action_class = setup['action_class']
+        
+        if market_breadth < MARKET_BREATH_ENTRY and is_actionable:
+            action = "تحذير: ضعف عام"
+            is_actionable = False
+            action_class = "avoid"
+        elif market_breadth < MARKET_BREATH_EXIT:
+            action = "خطر: خروج عام"
+            is_actionable = False
+            action_class = "avoid"
+
         stop_price = setup['stop'] if not np.isnan(setup['stop']) else current_price * 0.97
 
         latest_data.append({
@@ -138,11 +161,12 @@ def get_market_intelligence():
             'target_weekly': round(setup['target_weekly'], 2) if setup['target_weekly'] is not None else None,
             'stop': round(stop_price, 2),
             'sharpe': round(float(latest_row['sharpe_ratio_rolling'].values[0]), 2) if 'sharpe_ratio_rolling' in latest_row.columns else 0,
-            'is_actionable': setup['is_actionable'],
-            'action': setup['action'],
-            'action_class': setup['action_class'],
+            'is_actionable': is_actionable,
+            'action': action,
+            'action_class': action_class,
             'is_liquid': is_liquid,
-            'avg_traded_value_20d': round(avg_traded_value, 0)
+            'avg_traded_value_20d': round(avg_traded_value, 0),
+            'market_breadth': market_breadth
         })
     
     return sorted(
@@ -171,12 +195,15 @@ async def read_root(request: Request):
         bt_df = pd.read_csv(BACKTEST_PATH)
         backtest = {'return': round(float(bt_df['value'].iloc[-1] - 100.0), 2)}
 
+    market_breadth = intelligence[0]['market_breadth'] if intelligence else 0.5
+
     return templates.TemplateResponse(
         request=request, name="index.html",
         context={
             "request": request, "predictions": intelligence,
             "top_3": top_3, "heatmap_predictions": heatmap_predictions,
             "sectors": sectors, "backtest": backtest, "data_date": data_date,
+            "market_breadth": round(market_breadth * 100, 1),
             "coverage_count": len(intelligence),
             "last_update": datetime.now().strftime("%H:%M")
         }

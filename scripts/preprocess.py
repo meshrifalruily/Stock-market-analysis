@@ -57,10 +57,15 @@ def calculate_advanced_metrics(df):
     df['traded_value'] = df_ta['close'] * df_ta['volume']
     df['avg_traded_value_20d'] = df['traded_value'].rolling(20).mean()
     df['volume_ratio_20d'] = df_ta['volume'] / df_ta['volume'].rolling(20).mean()
+    df['volume_ratio_5d'] = df_ta['volume'] / df_ta['volume'].rolling(5).mean()
     df['atr_pct'] = df['atr'] / df_ta['close']
     df['price_vs_sma_20'] = (df_ta['close'] / df['sma_20']) - 1
     df['price_vs_sma_50'] = (df_ta['close'] / df['sma_50']) - 1
     df['price_vs_sma_200'] = (df_ta['close'] / df['sma_200']) - 1
+    
+    # 6.5 Momentum Features
+    df['momentum_20d'] = df_ta['close'].pct_change(20)
+    df['momentum_10d'] = df_ta['close'].pct_change(10)
     
     df['sharpe_ratio_rolling'] = (df['daily_return'].rolling(window=20).mean() / 
                                   df['daily_return'].rolling(window=20).std()) * np.sqrt(252)
@@ -136,12 +141,22 @@ def preprocess_all_data(combined_file_path, output_file_path):
         })
         final_df = final_df.merge(breadth, left_on='date', right_index=True, how='left')
     if {'date', 'sector', 'daily_return', 'market_return'}.issubset(final_df.columns):
-        sector_return = final_df.groupby(['date', 'sector'])['daily_return'].mean().rename('sector_return_1d')
-        final_df = final_df.merge(sector_return, left_on=['date', 'sector'], right_index=True, how='left')
-        final_df['sector_relative_return_1d'] = final_df['sector_return_1d'] - final_df['market_return']
-        final_df[['sector_return_1d', 'sector_relative_return_1d']] = (
-            final_df[['sector_return_1d', 'sector_relative_return_1d']].fillna(0)
+        sector_stats = final_df.groupby(['date', 'sector'])['daily_return'].mean().reset_index()
+        sector_stats['sector_return_1d'] = sector_stats['daily_return']
+        
+        # حساب زخم القطاع (20 يوم)
+        sector_stats = sector_stats.sort_values(['sector', 'date'])
+        sector_stats['sector_momentum_20d'] = sector_stats.groupby('sector')['daily_return'].transform(lambda x: x.rolling(20).mean())
+        
+        final_df = final_df.merge(
+            sector_stats[['date', 'sector', 'sector_return_1d', 'sector_momentum_20d']], 
+            on=['date', 'sector'], 
+            how='left'
         )
+        
+        final_df['sector_relative_return_1d'] = final_df['sector_return_1d'] - final_df['market_return']
+        cols_to_fill = ['sector_return_1d', 'sector_momentum_20d', 'sector_relative_return_1d']
+        final_df[cols_to_fill] = final_df[cols_to_fill].fillna(0)
     final_df.to_csv(output_file_path, index=False)
     print(f"تم حفظ البيانات المعالجة الشاملة في {output_file_path}")
 

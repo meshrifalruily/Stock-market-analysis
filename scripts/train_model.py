@@ -19,7 +19,7 @@ def get_candidate_models():
             n_estimators=300, max_depth=10, min_samples_leaf=5, random_state=42, n_jobs=-1
         ),
         "hist_gradient_boosting": HistGradientBoostingRegressor(
-            max_iter=250, learning_rate=0.04, l2_regularization=0.05, random_state=42
+            max_iter=300, learning_rate=0.03, l2_regularization=0.1, random_state=42
         ),
     }
 
@@ -76,11 +76,13 @@ def train_tasi_models(processed_file_path):
         'macro_bz_f', 'macro_tasi_proxy', 'tv_signal', 'tv_adx', 'sentiment',
         'return_1d', 'return_2d', 'return_3d', 'return_5d', 'return_10d', 'return_20d',
         'weekly_return_hist', 'volatility_10d', 'volatility_20d', 'traded_value',
-        'avg_traded_value_20d', 'volume_ratio_20d',
+        'avg_traded_value_20d', 'volume_ratio_20d', 'volume_ratio_5d',
+        'momentum_20d', 'momentum_10d',
         'atr_pct', 'price_vs_sma_20', 'price_vs_sma_50', 'price_vs_sma_200',
         'market_return', 'relative_return_1d', 'relative_return_5d',
         'oil_return', 'day_of_week', 'month', 'market_breadth_sma20',
-        'market_breadth_sma50', 'sector_return_1d', 'sector_relative_return_1d'
+        'market_breadth_sma50', 'sector_return_1d', 'sector_relative_return_1d',
+        'sector_momentum_20d'
     ]
     
     # تنظيف الميزات
