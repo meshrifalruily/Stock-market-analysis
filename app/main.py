@@ -209,6 +209,27 @@ async def read_root(request: Request):
         }
     )
 
+@app.get("/stock/{symbol}", response_class=HTMLResponse)
+async def stock_detail(request: Request, symbol: str):
+    intelligence = get_market_intelligence()
+    stock = next((item for item in intelligence if item['symbol'] == symbol), None)
+    
+    if not stock:
+        return JSONResponse(status_code=404, content={"message": "Stock not found"})
+        
+    # جلب متوسط القطاع للمقارنة
+    sector_avg = np.mean([s['predicted_daily'] for s in intelligence if s['sector'] == stock['sector']])
+    
+    return templates.TemplateResponse(
+        request=request, name="stock_detail.html",
+        context={
+            "request": request,
+            "stock": stock,
+            "sector_avg": round(sector_avg, 2),
+            "last_update": datetime.now().strftime("%Y-%m-%d %H:%M")
+        }
+    )
+
 @app.post("/api/update")
 async def update_all(background_tasks: BackgroundTasks):
     def run():

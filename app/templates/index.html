@@ -58,10 +58,10 @@
                 <div class="grid grid-cols-4 md:grid-cols-5 gap-2 h-64">
                     {% for stock in heatmap_predictions %}
                     {% set color = "bg-emerald-600" if stock.predicted_daily > 0.5 else ("bg-emerald-800" if stock.predicted_daily > 0 else "bg-slate-800") %}
-                    <div class="heatmap-node {{ color }} rounded-lg p-2 flex flex-col justify-center items-center text-center border border-white/5 cursor-pointer">
+                    <a href="/stock/{{ stock.symbol }}" class="heatmap-node {{ color }} rounded-lg p-2 flex flex-col justify-center items-center text-center border border-white/5 cursor-pointer">
                         <div class="text-[10px] font-bold truncate w-full">{{ stock.company_name }}</div>
                         <div class="text-xs font-black">{{ stock.predicted_daily }}%</div>
-                    </div>
+                    </a>
                     {% endfor %}
                 </div>
             </div>
@@ -76,7 +76,7 @@
         {% if top_3 %}
         <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
             {% for stock in top_3 %}
-            <div class="glass rounded-[2rem] p-8 border-t-4 border-emerald-500 relative overflow-hidden">
+            <a href="/stock/{{ stock.symbol }}" class="glass rounded-[2rem] p-8 border-t-4 border-emerald-500 relative overflow-hidden block hover:brightness-110 transition-all">
                 <div class="flex justify-between items-start mb-6">
                     <div>
                         <h3 class="text-2xl font-bold text-white">{{ stock.company_name }}</h3>
@@ -134,7 +134,7 @@
                     <span>ثقة شارب: {{ stock.sharpe }}</span>
                     <span>مشاعر السوق: {{ stock.sentiment }}%</span>
                 </div>
-            </div>
+            </a>
             {% endfor %}
         </div>
         {% else %}
@@ -165,9 +165,9 @@
                     </thead>
                     <tbody class="divide-y divide-white/5 text-sm">
                         {% for stock in predictions %}
-                        <tr class="hover:bg-white/5 transition">
+                        <tr class="hover:bg-white/5 transition cursor-pointer" onclick="window.location='/stock/{{ stock.symbol }}'">
                             <td class="p-4">
-                                <div class="font-bold">{{ stock.company_name }}</div>
+                                <div class="font-bold text-emerald-400 hover:underline">{{ stock.company_name }}</div>
                                 <div class="text-[10px] text-slate-500">{{ stock.symbol }}</div>
                             </td>
                             <td class="p-4 font-mono">{{ stock.current_price }}</td>

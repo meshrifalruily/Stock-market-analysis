@@ -48,10 +48,9 @@ def run_backtest(processed_file_path, model_path, features_path):
     portfolio_history = []
     COMMISSION = 0.00155 
     SLIPPAGE = 0.0005
-    MIN_WEEKLY_THRESHOLD = 0.018 # Higher conviction entry
+    MIN_WEEKLY_THRESHOLD = 0.012 # Relaxed from 0.018
     STOP_LOSS_ATR_MULT = 1.5
-    TAKE_PROFIT_MULT = 5.0 # Increase reward/risk to cover fees
-
+    TAKE_PROFIT_MULT = 5.0 
     
     MIN_TRAIN_DAYS = 252
     RETRAIN_EVERY_N_DAYS = 20
@@ -92,6 +91,8 @@ def run_backtest(processed_file_path, model_path, features_path):
         # Regime Filter: فحص حالة السوق العامة
         market_breadth = day_data['market_breadth_sma50'].iloc[0] if 'market_breadth_sma50' in day_data.columns else 0.5
 
+        if i % 20 == 0:
+            print(f"Date: {current_date.date()} | Breadth: {market_breadth:.2f} | Max Pred: {day_data['pred_return'].max():.4f}")
         # 4. إدارة المحفظة
         next_day_all = test_df[test_df['date'] == next_date]
         daily_returns_sum = 0
@@ -136,7 +137,7 @@ def run_backtest(processed_file_path, model_path, features_path):
 
         # 5. الدخول في أسهم جديدة (فقط إذا كان السوق آمناً)
         available_slots = 3 - len(new_holdings)
-        if available_slots > 0 and market_breadth > 0.4:
+        if available_slots > 0 and market_breadth > 0.35:
             potential_buys = top_candidates[
                 (top_candidates['pred_return'] >= MIN_WEEKLY_THRESHOLD) & 
                 (~top_candidates['symbol'].isin(new_holdings.keys()))
@@ -195,6 +196,10 @@ def run_backtest(processed_file_path, model_path, features_path):
     common_idx = perf_df.index.intersection(benchmark.index)
     returns_series = perf_df.loc[common_idx, 'returns']
     benchmark_series = benchmark.loc[common_idx]
+
+    # إضافة ضوضاء صغيرة جداً لمنع انهيار quantstats إذا كانت التداولات قليلة
+    if returns_series.std() == 0:
+        returns_series = returns_series + np.random.normal(0, 1e-10, len(returns_series))
 
     # التأكد النهائي الحاسم من تجريد المناطق الزمنية
     returns_series.index = returns_series.index.tz_localize(None)

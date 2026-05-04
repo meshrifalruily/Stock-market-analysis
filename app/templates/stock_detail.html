@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تحليل {{ stock.company_name }} | TASI AI Pro</title>
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-green: #22c55e;
+            --accent-red: #ef4444;
+            --accent-blue: #3b82f6;
+            --accent-gold: #f59e0b;
+        }
+
+        body {
+            font-family: 'Tajawal', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            border-bottom: 1px solid #334155;
+            padding-bottom: 20px;
+        }
+
+        .stock-title h1 {
+            margin: 0;
+            font-size: 2rem;
+            color: var(--text-primary);
+        }
+
+        .symbol-badge {
+            background: #334155;
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            color: var(--accent-blue);
+        }
+
+        .decision-card {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 30px;
+            text-align: center;
+            margin-bottom: 30px;
+            border-top: 4px solid var(--accent-blue);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+        }
+
+        .decision-buy { border-top-color: var(--accent-green); }
+        .decision-avoid { border-top-color: var(--accent-red); }
+        .decision-watch { border-top-color: var(--accent-gold); }
+
+        .action-label {
+            font-size: 1.2rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+            display: block;
+        }
+
+        .action-value {
+            font-size: 2.5rem;
+            display: block;
+            margin-bottom: 15px;
+        }
+
+        .buy { color: var(--accent-green); }
+        .avoid { color: var(--accent-red); }
+        .watch { color: var(--accent-gold); }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid #334155;
+        }
+
+        .card h3 {
+            margin-top: 0;
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            border-bottom: 1px solid #334155;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .metric-label { color: var(--text-secondary); }
+        .metric-value { font-weight: 700; }
+
+        .ai-score {
+            font-size: 1.5rem;
+            color: var(--accent-green);
+        }
+
+        .setup-box {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            padding: 25px;
+            border-radius: 12px;
+            border-right: 4px solid var(--accent-blue);
+        }
+
+        .price-highlight {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 50px;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        .btn-back {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: var(--accent-blue);
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .xai-reason {
+            background: rgba(59, 130, 246, 0.1);
+            color: var(--accent-blue);
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            margin-top: 15px;
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <a href="/" class="btn-back">← العودة للرئيسية</a>
+
+    <div class="header">
+        <div class="stock-title">
+            <h1>{{ stock.company_name }}</h1>
+            <span class="symbol-badge">{{ stock.symbol }}</span>
+            <span class="symbol-badge">{{ stock.sector }}</span>
+        </div>
+        <div style="text-align: left;">
+            <div style="color: var(--text-secondary); font-size: 0.9rem;">السعر الحالي</div>
+            <div class="price-highlight">{{ stock.current_price }} ر.س</div>
+        </div>
+    </div>
+
+    <div class="decision-card decision-{{ stock.action_class }}">
+        <span class="action-label">توصية النظام</span>
+        <span class="action-value {{ stock.action_class }}">{{ stock.action }}</span>
+        <div class="xai-reason">لماذا؟ {{ stock.reason }}</div>
+    </div>
+
+    <div class="grid">
+        <!-- طبقة الذكاء الاصطناعي -->
+        <div class="card">
+            <h3>توقعات الذكاء الاصطناعي</h3>
+            <div class="metric-row">
+                <span class="metric-label">العائد اليومي المتوقع</span>
+                <span class="metric-value ai-score" style="color: {{ 'var(--accent-green)' if stock.predicted_daily > 0 else 'var(--accent-red)' }}">
+                    {{ stock.predicted_daily }}%
+                </span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">العائد الأسبوعي المتوقع</span>
+                <span class="metric-value" style="color: {{ 'var(--accent-green)' if stock.predicted_weekly > 0 else 'var(--accent-red)' }}">
+                    {{ stock.predicted_weekly }}%
+                </span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">متوسط نمو القطاع</span>
+                <span class="metric-value">{{ sector_avg }}%</span>
+            </div>
+        </div>
+
+        <!-- طبقة التحليل المؤسسي -->
+        <div class="card">
+            <h3>المقاييس المؤسسية</h3>
+            <div class="metric-row">
+                <span class="metric-label">نسبة شارب (الاستقرار)</span>
+                <span class="metric-value" style="color: {{ 'var(--accent-green)' if stock.sharpe > 1 else 'var(--text-primary)' }}">
+                    {{ stock.sharpe }}
+                </span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">صحة السوق العامة</span>
+                <span class="metric-value" style="color: {{ 'var(--accent-green)' if stock.market_breadth > 0.4 else 'var(--accent-red)' }}">
+                    {{ (stock.market_breadth * 100) | round(1) }}%
+                </span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">متوسط التداول (20يوم)</span>
+                <span class="metric-value">{{ "{:,.0f}".format(stock.avg_traded_value_20d) }} ر.س</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- طبقة التنفيذ -->
+    <div class="setup-box">
+        <h3>خطة التنفيذ المقترحة</h3>
+        <div class="grid" style="margin-bottom: 0;">
+            <div style="border-left: 1px solid #334155; padding-left: 15px;">
+                <div class="metric-label">نقطة الدخول</div>
+                <div class="metric-value" style="font-size: 1.4rem;">{{ stock.entry }} ر.س</div>
+            </div>
+            <div style="border-left: 1px solid #334155; padding-left: 15px;">
+                <div class="metric-label">الهدف الأسبوعي</div>
+                <div class="metric-value" style="font-size: 1.4rem; color: var(--accent-green);">
+                    {{ stock.target_weekly if stock.target_weekly else "---" }} ر.س
+                </div>
+            </div>
+            <div>
+                <div class="metric-label">وقف الخسارة (ATR)</div>
+                <div class="metric-value" style="font-size: 1.4rem; color: var(--accent-red);">{{ stock.stop }} ر.س</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>TASI AI Pro Suite © 2026 - التحليل مبني على خوارزميات إحصائية. التداول ينطوي على مخاطر عالية.</p>
+        <p>آخر تحديث للبيانات: {{ last_update }}</p>
+    </div>
+</div>
+
+</body>
+</html>
