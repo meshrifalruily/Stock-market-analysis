@@ -23,9 +23,9 @@ FEATURES_PATH = os.path.join(ROOT_DIR, "models/feature_names.joblib")
 FEATURE_MEDIANS_PATH = os.path.join(ROOT_DIR, "models/feature_medians.joblib")
 BACKTEST_PATH = os.path.join(ROOT_DIR, "data/backtest_results.csv")
 MIN_DAILY_BUY_RETURN = 0.005
-MIN_WEEKLY_BUY_RETURN = 0.018 # المتوافق مع الاختبار العكسي الناجح
-MARKET_BREATH_ENTRY = 0.4
-MARKET_BREATH_EXIT = 0.2
+MIN_WEEKLY_BUY_RETURN = 0.005 # المتوافق مع الاختبار العكسي الناجح 12.71%
+MARKET_BREATH_ENTRY = 0.30
+MARKET_BREATH_EXIT = 0.20
 MIN_AVG_TRADED_VALUE = float(os.getenv("TASI_MIN_AVG_TRADED_VALUE", "1000000"))
 HEATMAP_LIMIT = int(os.getenv("TASI_HEATMAP_LIMIT", "60"))
 

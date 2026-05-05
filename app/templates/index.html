@@ -20,12 +20,12 @@
     <header class="gradient-emerald p-6 shadow-2xl sticky top-0 z-50">
         <div class="container mx-auto flex justify-between items-center">
             <div>
-                <h1 class="text-3xl font-bold tracking-tight">🇸🇦 TASI AI PRO <span class="text-emerald-300 text-sm font-normal">v2.1</span></h1>
-                <p class="text-emerald-100 text-xs mt-1 italic">نظام استخبارات السوق السعودي - فحص موسع مع أهداف يومية/أسبوعية</p>
+                <h1 class="text-3xl font-bold tracking-tight">🇸🇦 TASI AI PRO <span class="text-emerald-300 text-sm font-normal">v3.0</span></h1>
+                <p class="text-emerald-100 text-xs mt-1 italic">نظام استخبارات السوق السعودي - يعتمد على الاحتمالات الإحصائية لتقليل المخاطر</p>
             </div>
             <div class="text-left space-y-1">
-                <div class="bg-white/10 px-4 py-1 rounded-full text-[10px] font-bold border border-white/20 uppercase tracking-widest">تاريخ البيانات: {{ data_date }}</div>
-                <div class="bg-white/10 px-4 py-1 rounded-full text-[10px] font-bold border border-white/20">عدد الأسهم المفحوصة: {{ coverage_count }}</div>
+                <div class="bg-white/10 px-4 py-1 rounded-full text-[10px] font-bold border border-white/20 uppercase tracking-widest">صحة السوق: {{ market_breadth }}%</div>
+                <div class="bg-white/10 px-4 py-1 rounded-full text-[10px] font-bold border border-white/20 uppercase tracking-widest">نظام Alpha V4.0</div>
                 <div class="text-[10px] opacity-60">تحديث الجلسة: {{ last_update }}</div>
             </div>
         </div>
@@ -36,17 +36,16 @@
         <!-- Sector Strength & Heatmap -->
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-10">
             <div class="lg:col-span-4 glass p-6 rounded-3xl">
-                <h2 class="text-sm font-bold mb-4 text-emerald-400 uppercase tracking-wider">🔥 قوة القطاعات</h2>
+                <h2 class="text-sm font-bold mb-4 text-emerald-400 uppercase tracking-wider">🔥 ثقة القطاعات (أسبوعي)</h2>
                 <div class="space-y-4">
                     {% for sector, perf in sectors.items() %}
-                    {% set perf_abs = perf if perf > 0 else -perf %}
                     <div>
                         <div class="flex justify-between text-xs mb-1">
                             <span>{{ sector }}</span>
-                            <span class="{{ 'text-emerald-400' if perf > 0 else 'text-red-400' }} font-bold">{{ "%+.2f"|format(perf) }}%</span>
+                            <span class="text-emerald-400 font-bold">{{ perf }}%</span>
                         </div>
                         <div class="w-full bg-slate-700 h-1.5 rounded-full overflow-hidden">
-                            <div class="{{ 'bg-emerald-500' if perf > 0 else 'bg-red-500' }} h-full rounded-full" style="width: {{ [[perf_abs * 5, 8]|max, 100]|min }}%"></div>
+                            <div class="bg-emerald-500 h-full rounded-full" style="width: {{ perf }}%"></div>
                         </div>
                     </div>
                     {% endfor %}
@@ -54,13 +53,13 @@
             </div>
 
             <div class="lg:col-span-8 glass p-6 rounded-3xl overflow-hidden">
-                <h2 class="text-sm font-bold mb-4 text-emerald-400 uppercase tracking-wider">🗺️ خريطة السوق - أقوى {{ heatmap_predictions|length }} سهم</h2>
+                <h2 class="text-sm font-bold mb-4 text-emerald-400 uppercase tracking-wider">🗺️ خريطة الثقة - أقوى {{ heatmap_predictions|length }} سهم</h2>
                 <div class="grid grid-cols-4 md:grid-cols-5 gap-2 h-64">
                     {% for stock in heatmap_predictions %}
-                    {% set color = "bg-emerald-600" if stock.predicted_daily > 0.5 else ("bg-emerald-800" if stock.predicted_daily > 0 else "bg-slate-800") %}
+                    {% set color = "bg-emerald-600" if stock.predicted_weekly > 70 else ("bg-emerald-800" if stock.predicted_weekly > 60 else "bg-slate-800") %}
                     <a href="/stock/{{ stock.symbol }}" class="heatmap-node {{ color }} rounded-lg p-2 flex flex-col justify-center items-center text-center border border-white/5 cursor-pointer">
                         <div class="text-[10px] font-bold truncate w-full">{{ stock.company_name }}</div>
-                        <div class="text-xs font-black">{{ stock.predicted_daily }}%</div>
+                        <div class="text-xs font-black">{{ stock.predicted_weekly }}%</div>
                     </a>
                     {% endfor %}
                 </div>
@@ -69,8 +68,8 @@
 
         <!-- Top 3 Picks -->
         <div class="flex justify-between items-end mb-8">
-            <h2 class="text-2xl font-black">🎯 التوصيات الذهبية (أهداف مزدوجة)</h2>
-            <button onclick="updateData()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-2xl transition-all font-bold text-xs shadow-lg">🔄 تحديث البيانات</button>
+            <h2 class="text-2xl font-black">🎯 نخبة السوق (Alpha Leaders)</h2>
+            <button onclick="updateData()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-2xl transition-all font-bold text-xs shadow-lg">🔄 تحديث النماذج والبيانات</button>
         </div>
 
         {% if top_3 %}
@@ -83,14 +82,14 @@
                         <p class="text-slate-400 text-[10px] font-bold uppercase">{{ stock.sector }} | {{ stock.symbol }}</p>
                     </div>
                     <div class="text-right">
-                        <div class="{{ 'text-emerald-400' if stock.predicted_daily > 0 else 'text-red-400' }} text-3xl font-black">{{ "%+.2f"|format(stock.predicted_daily) }}%</div>
-                        <div class="text-[9px] text-slate-500 font-bold tracking-tighter">عائد يومي</div>
+                        <div class="text-emerald-400 text-3xl font-black">{{ stock.predicted_weekly }}%</div>
+                        <div class="text-[9px] text-slate-500 font-bold tracking-tighter">ثقة التفوق على السوق</div>
                         <div class="mt-2 text-[9px] px-2 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/20">{{ stock.action }}</div>
                     </div>
                 </div>
 
                 <div class="bg-slate-800/50 p-4 rounded-2xl mb-6 border border-white/5">
-                    <div class="text-[10px] text-amber-400 font-bold mb-1 uppercase tracking-wider">تحليل الذكاء الاصطناعي:</div>
+                    <div class="text-[10px] text-amber-400 font-bold mb-1 uppercase tracking-wider">تحليل الجودة:</div>
                     <div class="text-xs text-slate-300 leading-relaxed italic">{{ stock.reason }}</div>
                 </div>
 
@@ -98,24 +97,24 @@
                 <div class="grid grid-cols-1 gap-4 mb-8">
                     <div class="bg-emerald-950/40 p-4 rounded-2xl border border-emerald-500/20">
                         <div class="flex justify-between items-center mb-1">
-                            <span class="text-emerald-400 text-[10px] font-bold">الهدف اليومي (للغد)</span>
-                            <span class="text-xs bg-emerald-500 text-white px-2 py-0.5 rounded-full">{{ "%+.2f"|format(stock.predicted_daily) }}%</span>
+                            <span class="text-emerald-400 text-[10px] font-bold">هدف المدى اليومي</span>
+                            <span class="text-xs bg-emerald-500 text-white px-2 py-0.5 rounded-full">{{ stock.predicted_daily }}% ثقة</span>
                         </div>
                         {% if stock.target_daily %}
                         <div class="text-2xl font-black text-white">{{ stock.target_daily }} <span class="text-xs font-normal">ر.س</span></div>
                         {% else %}
-                        <div class="text-sm font-bold text-slate-400">لا يوجد هدف شراء يومي</div>
+                        <div class="text-sm font-bold text-slate-400">---</div>
                         {% endif %}
                     </div>
                     <div class="bg-blue-950/40 p-4 rounded-2xl border border-blue-500/20">
                         <div class="flex justify-between items-center mb-1">
-                            <span class="text-blue-400 text-[10px] font-bold">الهدف الأسبوعي (5 أيام)</span>
-                            <span class="text-xs bg-blue-500 text-white px-2 py-0.5 rounded-full">{{ "%+.2f"|format(stock.predicted_weekly) }}%</span>
+                            <span class="text-blue-400 text-[10px] font-bold">هدف المدى الأسبوعي</span>
+                            <span class="text-xs bg-blue-500 text-white px-2 py-0.5 rounded-full">{{ stock.predicted_weekly }}% ثقة</span>
                         </div>
                         {% if stock.target_weekly %}
                         <div class="text-2xl font-black text-white">{{ stock.target_weekly }} <span class="text-xs font-normal">ر.س</span></div>
                         {% else %}
-                        <div class="text-sm font-bold text-slate-400">لا يوجد هدف شراء أسبوعي</div>
+                        <div class="text-sm font-bold text-slate-400">---</div>
                         {% endif %}
                     </div>
                 </div>
@@ -131,36 +130,36 @@
                     </div>
                 </div>
                 <div class="mt-4 flex justify-between text-[9px] text-slate-500">
-                    <span>ثقة شارب: {{ stock.sharpe }}</span>
-                    <span>مشاعر السوق: {{ stock.sentiment }}%</span>
+                    <span>نسبة شارب: {{ stock.sharpe }}</span>
+                    <span>قوة الاتجاه (ADX): {{ stock.tv_adx }}</span>
                 </div>
             </a>
             {% endfor %}
         </div>
         {% else %}
         <div class="glass rounded-3xl p-8 mb-16 border border-amber-500/20">
-            <h3 class="text-xl font-bold text-amber-300 mb-2">لا توجد توصيات شراء حالياً</h3>
-            <p class="text-sm text-slate-300">النموذج الحالي لا يعطي عائداً موجباً كافياً لعرض أهداف شراء. تم تحويل الأسهم إلى قائمة مراقبة حتى لا تظهر أهداف أقل من سعر الدخول.</p>
+            <h3 class="text-xl font-bold text-amber-300 mb-2">لا توجد توصيات شراء عالية القناعة حالياً</h3>
+            <p class="text-sm text-slate-300">السوق في مرحلة انتظار أو ضعف سيولة. الذكاء الاصطناعي لم يجد أسهماً تتجاوز عتبة الثقة المطلوبة (65%).</p>
         </div>
         {% endif %}
 
         <!-- Full Market Table -->
         <section class="glass rounded-3xl border border-white/5 overflow-hidden">
             <div class="p-6 border-b border-white/5 bg-white/5">
-                <h2 class="text-xl font-bold">📊 قائمة الأهداف التفصيلية</h2>
+                <h2 class="text-xl font-bold">📊 قائمة الاحتمالات لجميع الشركات</h2>
             </div>
             <div class="overflow-x-auto">
                 <table class="w-full text-right">
                     <thead class="bg-slate-900 text-slate-500 text-[10px] uppercase font-bold">
                         <tr>
                             <th class="p-4">الشركة</th>
-                            <th class="p-4">السعر الحالي</th>
-                            <th class="p-4 text-emerald-400">الهدف اليومي</th>
-                            <th class="p-4 text-blue-400">الهدف الأسبوعي</th>
+                            <th class="p-4">السعر</th>
+                            <th class="p-4 text-emerald-400">احتمالية التفوق اليومي</th>
+                            <th class="p-4 text-blue-400">احتمالية التفوق الأسبوعي</th>
+                            <th class="p-4 text-purple-400">احتمالية أسبوعين</th>
                             <th class="p-4 text-red-400">وقف الخسارة</th>
                             <th class="p-4">الحالة</th>
-                            <th class="p-4">متوسط السيولة</th>
-                            <th class="p-4">المشاعر</th>
+                            <th class="p-4">السيولة</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-white/5 text-sm">
@@ -171,18 +170,14 @@
                                 <div class="text-[10px] text-slate-500">{{ stock.symbol }}</div>
                             </td>
                             <td class="p-4 font-mono">{{ stock.current_price }}</td>
-                            <td class="p-4 font-bold text-emerald-400">{{ stock.target_daily if stock.target_daily else 'لا يوجد' }}</td>
-                            <td class="p-4 font-bold text-blue-400">{{ stock.target_weekly if stock.target_weekly else 'لا يوجد' }}</td>
+                            <td class="p-4 font-bold text-emerald-400">{{ stock.predicted_daily }}%</td>
+                            <td class="p-4 font-bold text-blue-400">{{ stock.predicted_weekly }}%</td>
+                            <td class="p-4 font-bold text-purple-400">{{ stock.predicted_medium }}%</td>
                             <td class="p-4 text-red-400">{{ stock.stop }}</td>
                             <td class="p-4">
                                 <span class="text-[10px] px-2 py-1 rounded-full {{ 'bg-emerald-500/15 text-emerald-300' if stock.action_class == 'buy' else ('bg-blue-500/15 text-blue-300' if stock.action_class == 'watch' else 'bg-slate-700 text-slate-300') }}">{{ stock.action }}</span>
                             </td>
-                            <td class="p-4 font-mono text-xs">{{ "{:,.0f}".format(stock.avg_traded_value_20d) }}</td>
-                            <td class="p-4">
-                                <div class="w-12 bg-slate-700 h-1 rounded-full">
-                                    <div class="bg-amber-400 h-full rounded-full" style="width: {{ stock.sentiment }}%"></div>
-                                </div>
-                            </td>
+                            <td class="p-4 font-mono text-xs">{{ "{:,.1f}M".format(stock.avg_traded_value_20d / 1000000) }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
