@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TASI AI Pro Suite</title>
+    <title>منصة تاسي الذكية</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
     <style>
@@ -20,18 +20,113 @@
     <header class="gradient-emerald p-6 shadow-2xl sticky top-0 z-50">
         <div class="container mx-auto flex justify-between items-center">
             <div>
-                <h1 class="text-3xl font-bold tracking-tight">🇸🇦 TASI AI PRO <span class="text-emerald-300 text-sm font-normal">v3.0</span></h1>
-                <p class="text-emerald-100 text-xs mt-1 italic">نظام استخبارات السوق السعودي - يعتمد على الاحتمالات الإحصائية لتقليل المخاطر</p>
+                <h1 class="text-3xl font-bold tracking-tight">منصة تاسي الذكية <span class="text-emerald-300 text-sm font-normal">الإصدار 3.1</span></h1>
+                <p class="text-emerald-100 text-xs mt-1 italic">تحليل احتمالي لأسهم السوق السعودي الرئيسي فقط، مع استبعاد سوق نمو</p>
             </div>
             <div class="text-left space-y-1">
                 <div class="bg-white/10 px-4 py-1 rounded-full text-[10px] font-bold border border-white/20 uppercase tracking-widest">صحة السوق: {{ market_breadth }}%</div>
-                <div class="bg-white/10 px-4 py-1 rounded-full text-[10px] font-bold border border-white/20 uppercase tracking-widest">نظام Alpha V4.0</div>
+                <div class="bg-white/10 px-4 py-1 rounded-full text-[10px] font-bold border border-white/20">{{ market_scope }} | عدد الأسهم: {{ coverage_count }}</div>
                 <div class="text-[10px] opacity-60">تحديث الجلسة: {{ last_update }}</div>
             </div>
         </div>
     </header>
 
     <main class="container mx-auto mt-8 px-4">
+        {% if paper_portfolio %}
+        <section class="glass rounded-3xl border border-emerald-500/20 overflow-hidden mb-10">
+            <div class="p-6 border-b border-white/5 bg-emerald-950/30 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                <div>
+                    <h2 class="text-xl font-black">المحفظة الافتراضية لتوصيات البرنامج</h2>
+                    <p class="text-xs text-slate-400 mt-1">تبدأ بـ 1,000 ريال وتحاكي الشراء والبيع مرة واحدة لكل تاريخ بيانات حسب شروط الاستراتيجية.</p>
+                </div>
+                <button onclick="resetPortfolio()" class="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl transition-all font-bold text-xs border border-white/10">إعادة ضبط المحفظة</button>
+            </div>
+
+            <div class="grid grid-cols-2 lg:grid-cols-5 gap-4 p-6">
+                <div class="bg-slate-900/60 p-4 rounded-2xl border border-white/5">
+                    <div class="text-[10px] text-slate-400 font-bold mb-1">القيمة الحالية</div>
+                    <div class="text-2xl font-black text-white">{{ "{:,.2f}".format(paper_portfolio.total_value) }} <span class="text-xs">ر.س</span></div>
+                </div>
+                <div class="bg-slate-900/60 p-4 rounded-2xl border border-white/5">
+                    <div class="text-[10px] text-slate-400 font-bold mb-1">العائد الكلي</div>
+                    <div class="text-2xl font-black {{ 'text-emerald-400' if paper_portfolio.total_return >= 0 else 'text-red-400' }}">{{ "{:,.2f}".format(paper_portfolio.total_return) }} <span class="text-xs">ر.س</span></div>
+                    <div class="text-xs {{ 'text-emerald-400' if paper_portfolio.total_return_pct >= 0 else 'text-red-400' }}">{{ paper_portfolio.total_return_pct }}%</div>
+                </div>
+                <div class="bg-slate-900/60 p-4 rounded-2xl border border-white/5">
+                    <div class="text-[10px] text-slate-400 font-bold mb-1">السيولة</div>
+                    <div class="text-2xl font-black text-blue-300">{{ "{:,.2f}".format(paper_portfolio.cash) }} <span class="text-xs">ر.س</span></div>
+                </div>
+                <div class="bg-slate-900/60 p-4 rounded-2xl border border-white/5">
+                    <div class="text-[10px] text-slate-400 font-bold mb-1">القيمة المستثمرة</div>
+                    <div class="text-2xl font-black text-purple-300">{{ "{:,.2f}".format(paper_portfolio.invested_value) }} <span class="text-xs">ر.س</span></div>
+                </div>
+                <div class="bg-slate-900/60 p-4 rounded-2xl border border-white/5">
+                    <div class="text-[10px] text-slate-400 font-bold mb-1">آخر إشارة</div>
+                    <div class="text-lg font-black text-slate-100">{{ paper_portfolio.last_signal_date or "---" }}</div>
+                    <div class="text-[10px] text-slate-500">{{ paper_portfolio.updated_at or "" }}</div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 px-6 pb-6">
+                <div class="bg-slate-900/40 rounded-2xl border border-white/5 overflow-hidden">
+                    <div class="p-4 border-b border-white/5 text-sm font-bold text-emerald-300">المراكز المفتوحة</div>
+                    {% if paper_portfolio.positions %}
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-right text-xs">
+                            <thead class="text-slate-500 bg-slate-950/40">
+                                <tr>
+                                    <th class="p-3">الشركة</th>
+                                    <th class="p-3">الكمية</th>
+                                    <th class="p-3">المتوسط</th>
+                                    <th class="p-3">القيمة</th>
+                                    <th class="p-3">الربح/الخسارة</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-white/5">
+                                {% for pos in paper_portfolio.positions %}
+                                <tr>
+                                    <td class="p-3">
+                                        <div class="font-bold text-white">{{ pos.company_name }}</div>
+                                        <div class="text-[10px] text-slate-500">{{ pos.symbol }}</div>
+                                    </td>
+                                    <td class="p-3 font-mono">{{ pos.shares }}</td>
+                                    <td class="p-3 font-mono">{{ pos.avg_price }}</td>
+                                    <td class="p-3 font-mono">{{ "{:,.2f}".format(pos.market_value) }}</td>
+                                    <td class="p-3 font-mono {{ 'text-emerald-400' if pos.unrealized_pnl >= 0 else 'text-red-400' }}">{{ "{:,.2f}".format(pos.unrealized_pnl) }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="p-5 text-sm text-slate-400">لا توجد مراكز مفتوحة حالياً. ستنتظر المحفظة حتى تظهر توصيات شراء مستوفية للشروط.</div>
+                    {% endif %}
+                </div>
+
+                <div class="bg-slate-900/40 rounded-2xl border border-white/5 overflow-hidden">
+                    <div class="p-4 border-b border-white/5 text-sm font-bold text-blue-300">آخر عمليات البيع والشراء</div>
+                    {% if paper_portfolio.trades %}
+                    <div class="max-h-72 overflow-y-auto divide-y divide-white/5">
+                        {% for trade in paper_portfolio.trades[:8] %}
+                        <div class="p-4 flex items-center justify-between gap-4 text-xs">
+                            <div>
+                                <div class="font-bold {{ 'text-emerald-400' if trade.side == 'شراء' else 'text-red-400' }}">{{ trade.side }} {{ trade.company_name }}</div>
+                                <div class="text-slate-500">{{ trade.date }} | {{ trade.reason }}</div>
+                            </div>
+                            <div class="text-left font-mono">
+                                <div>{{ trade.shares }} سهم × {{ trade.price }}</div>
+                                <div class="text-slate-400">{{ "{:,.2f}".format(trade.amount) }} ر.س</div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="p-5 text-sm text-slate-400">لم يتم تنفيذ أي عملية بعد.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </section>
+        {% endif %}
         
         <!-- Sector Strength & Heatmap -->
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-10">
@@ -53,7 +148,7 @@
             </div>
 
             <div class="lg:col-span-8 glass p-6 rounded-3xl overflow-hidden">
-                <h2 class="text-sm font-bold mb-4 text-emerald-400 uppercase tracking-wider">🗺️ خريطة الثقة - أقوى {{ heatmap_predictions|length }} سهم</h2>
+                <h2 class="text-sm font-bold mb-4 text-emerald-400 uppercase tracking-wider">🗺️ خريطة الثقة - أقوى {{ heatmap_predictions|length }} سهم في السوق الرئيسي</h2>
                 <div class="grid grid-cols-4 md:grid-cols-5 gap-2 h-64">
                     {% for stock in heatmap_predictions %}
                     {% set color = "bg-emerald-600" if stock.predicted_weekly > 70 else ("bg-emerald-800" if stock.predicted_weekly > 60 else "bg-slate-800") %}
@@ -68,7 +163,7 @@
 
         <!-- Top 3 Picks -->
         <div class="flex justify-between items-end mb-8">
-            <h2 class="text-2xl font-black">🎯 نخبة السوق (Alpha Leaders)</h2>
+            <h2 class="text-2xl font-black">🎯 نخبة السوق الرئيسي</h2>
             <button onclick="updateData()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-2xl transition-all font-bold text-xs shadow-lg">🔄 تحديث النماذج والبيانات</button>
         </div>
 
@@ -83,7 +178,7 @@
                     </div>
                     <div class="text-right">
                         <div class="text-emerald-400 text-3xl font-black">{{ stock.predicted_weekly }}%</div>
-                        <div class="text-[9px] text-slate-500 font-bold tracking-tighter">ثقة التفوق على السوق</div>
+                        <div class="text-[9px] text-slate-500 font-bold tracking-tighter">احتمالية التفوق على السوق الرئيسي</div>
                         <div class="mt-2 text-[9px] px-2 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/20">{{ stock.action }}</div>
                     </div>
                 </div>
@@ -91,6 +186,7 @@
                 <div class="bg-slate-800/50 p-4 rounded-2xl mb-6 border border-white/5">
                     <div class="text-[10px] text-amber-400 font-bold mb-1 uppercase tracking-wider">تحليل الجودة:</div>
                     <div class="text-xs text-slate-300 leading-relaxed italic">{{ stock.reason }}</div>
+                    <div class="text-[10px] text-slate-400 mt-2">حالة الدخول: {{ stock.entry_status }}</div>
                 </div>
 
                 <!-- Targets Section -->
@@ -139,14 +235,14 @@
         {% else %}
         <div class="glass rounded-3xl p-8 mb-16 border border-amber-500/20">
             <h3 class="text-xl font-bold text-amber-300 mb-2">لا توجد توصيات شراء عالية القناعة حالياً</h3>
-            <p class="text-sm text-slate-300">السوق في مرحلة انتظار أو ضعف سيولة. الذكاء الاصطناعي لم يجد أسهماً تتجاوز عتبة الثقة المطلوبة (65%).</p>
+            <p class="text-sm text-slate-300">السوق الرئيسي في مرحلة انتظار أو ضعف سيولة. النموذج لم يجد أسهماً تتجاوز عتبة الثقة المطلوبة.</p>
         </div>
         {% endif %}
 
         <!-- Full Market Table -->
         <section class="glass rounded-3xl border border-white/5 overflow-hidden">
             <div class="p-6 border-b border-white/5 bg-white/5">
-                <h2 class="text-xl font-bold">📊 قائمة الاحتمالات لجميع الشركات</h2>
+                <h2 class="text-xl font-bold">📊 قائمة الاحتمالات لأسهم السوق الرئيسي</h2>
             </div>
             <div class="overflow-x-auto">
                 <table class="w-full text-right">
@@ -157,6 +253,7 @@
                             <th class="p-4 text-emerald-400">احتمالية التفوق اليومي</th>
                             <th class="p-4 text-blue-400">احتمالية التفوق الأسبوعي</th>
                             <th class="p-4 text-purple-400">احتمالية أسبوعين</th>
+                            <th class="p-4">رتبة الاستراتيجية</th>
                             <th class="p-4 text-red-400">وقف الخسارة</th>
                             <th class="p-4">الحالة</th>
                             <th class="p-4">السيولة</th>
@@ -173,9 +270,11 @@
                             <td class="p-4 font-bold text-emerald-400">{{ stock.predicted_daily }}%</td>
                             <td class="p-4 font-bold text-blue-400">{{ stock.predicted_weekly }}%</td>
                             <td class="p-4 font-bold text-purple-400">{{ stock.predicted_medium }}%</td>
+                            <td class="p-4 font-mono text-xs">#{{ stock.hybrid_rank }}</td>
                             <td class="p-4 text-red-400">{{ stock.stop }}</td>
                             <td class="p-4">
                                 <span class="text-[10px] px-2 py-1 rounded-full {{ 'bg-emerald-500/15 text-emerald-300' if stock.action_class == 'buy' else ('bg-blue-500/15 text-blue-300' if stock.action_class == 'watch' else 'bg-slate-700 text-slate-300') }}">{{ stock.action }}</span>
+                                <div class="text-[10px] text-slate-500 mt-1">{{ stock.entry_status }}</div>
                             </td>
                             <td class="p-4 font-mono text-xs">{{ "{:,.1f}M".format(stock.avg_traded_value_20d / 1000000) }}</td>
                         </tr>
@@ -193,6 +292,17 @@
                 fetch('/api/update', { method: 'POST' })
                     .then(res => res.json())
                     .then(data => alert(data.status));
+            }
+        }
+
+        function resetPortfolio() {
+            if (confirm('إعادة المحفظة الافتراضية إلى 1,000 ريال؟')) {
+                fetch('/api/portfolio/reset', { method: 'POST' })
+                    .then(res => res.json())
+                    .then(data => {
+                        alert(data.status);
+                        window.location.reload();
+                    });
             }
         }
     </script>

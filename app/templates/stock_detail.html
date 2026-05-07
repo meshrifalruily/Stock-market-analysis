@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>تحليل {{ stock.company_name }} | TASI AI Pro</title>
+    <title>تحليل {{ stock.company_name }} | منصة تاسي الذكية</title>
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -171,6 +171,7 @@
             <h1>{{ stock.company_name }}</h1>
             <span class="symbol-badge">{{ stock.symbol }}</span>
             <span class="symbol-badge">{{ stock.sector }}</span>
+            <span class="symbol-badge">{{ stock.market }}</span>
         </div>
         <div style="text-align: left;">
             <div style="color: var(--text-secondary); font-size: 0.9rem;">السعر الحالي</div>
@@ -182,6 +183,7 @@
         <span class="action-label">توصية النظام</span>
         <span class="action-value {{ stock.action_class }}">{{ stock.action }}</span>
         <div class="xai-reason">لماذا؟ {{ stock.reason }}</div>
+        <div class="xai-reason">حالة الدخول: {{ stock.entry_status }}</div>
     </div>
 
     <div class="grid">
@@ -189,19 +191,19 @@
         <div class="card">
             <h3>توقعات الذكاء الاصطناعي</h3>
             <div class="metric-row">
-                <span class="metric-label">العائد اليومي المتوقع</span>
-                <span class="metric-value ai-score" style="color: {{ 'var(--accent-green)' if stock.predicted_daily > 0 else 'var(--accent-red)' }}">
+                <span class="metric-label">احتمالية التفوق اليومي</span>
+                <span class="metric-value ai-score" style="color: {{ 'var(--accent-green)' if stock.predicted_daily >= 55 else 'var(--accent-red)' }}">
                     {{ stock.predicted_daily }}%
                 </span>
             </div>
             <div class="metric-row">
-                <span class="metric-label">العائد الأسبوعي المتوقع</span>
-                <span class="metric-value" style="color: {{ 'var(--accent-green)' if stock.predicted_weekly > 0 else 'var(--accent-red)' }}">
+                <span class="metric-label">احتمالية التفوق الأسبوعي</span>
+                <span class="metric-value" style="color: {{ 'var(--accent-green)' if stock.predicted_weekly >= 55 else 'var(--accent-red)' }}">
                     {{ stock.predicted_weekly }}%
                 </span>
             </div>
             <div class="metric-row">
-                <span class="metric-label">متوسط نمو القطاع</span>
+                <span class="metric-label">متوسط ثقة القطاع</span>
                 <span class="metric-value">{{ sector_avg }}%</span>
             </div>
         </div>
@@ -224,6 +226,10 @@
             <div class="metric-row">
                 <span class="metric-label">متوسط التداول (20يوم)</span>
                 <span class="metric-value">{{ "{:,.0f}".format(stock.avg_traded_value_20d) }} ر.س</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">رتبة الاستراتيجية</span>
+                <span class="metric-value">#{{ stock.hybrid_rank }}</span>
             </div>
         </div>
     </div>
@@ -250,7 +256,7 @@
     </div>
 
     <div class="footer">
-        <p>TASI AI Pro Suite © 2026 - التحليل مبني على خوارزميات إحصائية. التداول ينطوي على مخاطر عالية.</p>
+        <p>منصة تاسي الذكية © 2026 - التحليل مبني على خوارزميات إحصائية لأسهم السوق الرئيسي. التداول ينطوي على مخاطر عالية.</p>
         <p>آخر تحديث للبيانات: {{ last_update }}</p>
     </div>
 </div>

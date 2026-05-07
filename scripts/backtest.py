@@ -2,68 +2,83 @@ import pandas as pd
 import numpy as np
 import joblib
 import os
+import sys
+import warnings
 import matplotlib
 matplotlib.use("Agg")
 import quantstats as qs
-from sklearn.ensemble import HistGradientBoostingRegressor
+from sklearn.ensemble import HistGradientBoostingClassifier
 
-MIN_AVG_TRADED_VALUE = float(os.getenv("TASI_MIN_AVG_TRADED_VALUE", "1000000"))
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
+from scripts.strategy_config import load_strategy_config
+from scripts.strategy_rules import add_hybrid_scores, entry_candidates, filter_main_market, summarize_returns
+
+# تجاهل التحذيرات الرياضية المتوقعة عند التعامل مع التباين الصفري
+warnings.filterwarnings('ignore', category=RuntimeWarning)
 
 def prepare_features(df, features, medians):
     X = df[features].replace([np.inf, -np.inf], np.nan)
     return X.fillna(medians).fillna(0)
 
 def train_walk_forward_model(history_df, features, target):
-    train_df = history_df.dropna(subset=[target]).copy()
+    # استخدام آخر 3 سنوات للتدريب لضمان استقرار النماذج
+    train_df = history_df.sort_values('date').tail(756 * 200).dropna(subset=[target]).copy() 
+    if len(train_df) < 2000:
+        train_df = history_df.dropna(subset=[target]).copy()
+        
     X_raw = train_df[features].replace([np.inf, -np.inf], np.nan)
     medians = X_raw.median(numeric_only=True).fillna(0)
     X = X_raw.fillna(medians).fillna(0)
     y = train_df[target]
-    model = HistGradientBoostingRegressor(
-        max_iter=100, learning_rate=0.03, max_leaf_nodes=31, l2_regularization=0.2, random_state=42
+    
+    # نموذج متوازن وسريع
+    model = HistGradientBoostingClassifier(
+        max_iter=150, learning_rate=0.03, max_leaf_nodes=63, l2_regularization=1.5, random_state=42, class_weight='balanced'
     )
     model.fit(X, y)
     return model, medians
 
 def run_backtest(processed_file_path, model_path, features_path):
+    config = load_strategy_config()
     if not os.path.exists(processed_file_path) or not os.path.exists(features_path):
         print("الميزات أو البيانات غير موجودة للاختبار العكسي.")
         return
-    
+
     df = pd.read_csv(processed_file_path)
-    
-    # تحويل التاريخ وتجريده من المنطقة الزمنية فوراً وبشكل صارم
     df['date'] = pd.to_datetime(df['date']).dt.tz_localize(None)
-    
+    before_symbols = df['symbol'].nunique()
+    df = filter_main_market(df)
+    print(f"الاختبار العكسي على السوق الرئيسي فقط: {df['symbol'].nunique()} من أصل {before_symbols} رمز.")
+
     features = joblib.load(features_path)
-    target = 'target_next_week_return' # التغيير للتنبؤ الأسبوعي لتقليل الضوضاء
+    target = 'target_alpha_weekly' # استهداف المتفوقين أسبوعياً
     
     # الاختبار العكسي لآخر 6 أشهر
     max_date = df['date'].max()
     start_date = max_date - pd.Timedelta(days=180)
     test_df = df[df['date'] >= start_date].copy()
-    
+
     dates = sorted(test_df['date'].unique())
     portfolio_value = 100.0 
     portfolio_history = []
     COMMISSION = 0.00155 
     SLIPPAGE = 0.0005
-    MIN_WEEKLY_THRESHOLD = 0.012 # Relaxed from 0.018
-    STOP_LOSS_ATR_MULT = 1.5
-    TAKE_PROFIT_MULT = 5.0 
     
     MIN_TRAIN_DAYS = 252
-    RETRAIN_EVERY_N_DAYS = 20
+    RETRAIN_EVERY_N_DAYS = 90 
     model = None
     medians = None
     last_retrain_idx = None
-    
-    current_holdings = {} # {symbol: {'entry_price': price, 'stop_loss': price}}
-    
+
+    current_holdings = {} # {symbol: {'entry_price': price, 'stop_loss': price, 'weight': weight, 'days_held': 0}}
+
     for i in range(len(dates) - 1):
         current_date = dates[i]
         next_date = dates[i+1]
-        
+
         # 1. التدريب التدريجي
         history_df = df[df['date'] < current_date].copy()
         train_dates = history_df['date'].nunique()
@@ -71,109 +86,110 @@ def run_backtest(processed_file_path, model_path, features_path):
             continue
 
         if model is None or last_retrain_idx is None or (i - last_retrain_idx) >= RETRAIN_EVERY_N_DAYS:
-            print(f"إعادة تدريب walk-forward حتى {current_date.date()} ({train_dates} أيام تدريب)...")
+            print(f"إعادة تدريب Alpha-Model V6 حتى {current_date.date()}...")
             model, medians = train_walk_forward_model(history_df, features, target)
             last_retrain_idx = i
 
         # 2. جلب بيانات اليوم الحالي وتصفية السيولة
         day_data = test_df[test_df['date'] == current_date].copy()
         if 'avg_traded_value_20d' in day_data.columns:
-            day_data = day_data[day_data['avg_traded_value_20d'] >= MIN_AVG_TRADED_VALUE]
-        
+            day_data = day_data[day_data['avg_traded_value_20d'] >= config["min_avg_traded_value"]]
+
         if day_data.empty:
-            portfolio_history.append({'date': next_date, 'returns': 0, 'value': portfolio_value, 'selected_symbols': "", 'avg_pred_return': 0.0})
+            portfolio_history.append({'date': next_date, 'returns': 0, 'value': portfolio_value, 'selected_symbols': "", 'avg_prob': 0.0})
             continue
 
-        # 3. التنبؤ واختيار الأسهم
+        # 3. التنبؤ وحساب جودة الإشارة الهجينة
         X = prepare_features(day_data, features, medians)
-        day_data['pred_return'] = model.predict(X)
+        day_data['prob_win'] = model.predict_proba(X)[:, 1]
+        day_data = add_hybrid_scores(day_data)
 
-        # Regime Filter: فحص حالة السوق العامة
+        # Regime Filter
         market_breadth = day_data['market_breadth_sma50'].iloc[0] if 'market_breadth_sma50' in day_data.columns else 0.5
 
         if i % 20 == 0:
-            print(f"Date: {current_date.date()} | Breadth: {market_breadth:.2f} | Max Pred: {day_data['pred_return'].max():.4f}")
+            print(f"Date: {current_date.date()} | Breadth: {market_breadth:.2f} | Best Prob: {day_data['prob_win'].max():.4f}")
+
         # 4. إدارة المحفظة
         next_day_all = test_df[test_df['date'] == next_date]
-        daily_returns_sum = 0
+        daily_portfolio_return = 0.0
         new_holdings = {}
-        
-        top_candidates = day_data.sort_values('pred_return', ascending=False)
-        top_symbols = top_candidates.head(20)['symbol'].tolist() # بقاء السهم ضمن أفضل 20 يمنع البيع العبثي
-        
-        # معالجة الأسهم الحالية
+
         for symbol, info in current_holdings.items():
             stock_current = day_data[day_data['symbol'] == symbol]
             stock_next = next_day_all[next_day_all['symbol'] == symbol]
-            
+            weight = info.get('weight', 1/3.0)
+
             if stock_next.empty or stock_current.empty:
-                # خروج اضطراري لعدم وجود بيانات (بيع)
-                portfolio_value *= (1 - (COMMISSION + SLIPPAGE))
+                daily_portfolio_return -= (COMMISSION + SLIPPAGE) * weight
                 continue
-                
+
             curr_price = stock_current['close'].values[0]
             next_ret = stock_next['daily_return'].values[0]
             atr = stock_current['atr'].values[0] if 'atr' in stock_current.columns else 0
             
-            # تحديث وقف الخسارة المتحرك
-            new_stop = max(info['stop_loss'], curr_price - (STOP_LOSS_ATR_MULT * atr))
+            new_stop = max(info['stop_loss'], curr_price - (config["stop_loss_atr_mult"] * atr))
+            if curr_price >= info['entry_price'] * 1.012:
+                new_stop = max(new_stop, info['entry_price'])
+
+            daily_portfolio_return += next_ret * weight
             
-            # قرار البيع: كسر وقف الخسارة، الوصول للهدف، أو خروج من التوب 20، أو تنبؤ سلبي جداً، أو انهيار السوق
-            pred_val = stock_current['pred_return'].values[0]
+            prob_val = stock_current['prob_win'].values[0]
+            rank_val = stock_current['rank'].values[0]
+            days_held = info.get('days_held', 0) + 1
+            
             should_sell = (curr_price < info['stop_loss']) or \
                           (curr_price > info['take_profit']) or \
-                          (symbol not in top_symbols) or \
-                          (pred_val < -0.005) or \
-                          (market_breadth < 0.2)
-            
-            if should_sell:
-                # بيع
-                portfolio_value *= (1 + next_ret) 
-                portfolio_value *= (1 - (COMMISSION + SLIPPAGE)) 
-            else:
-                # استمرار الاحتفاظ
-                daily_returns_sum += next_ret
-                new_holdings[symbol] = {'entry_price': info['entry_price'], 'stop_loss': new_stop, 'take_profit': info['take_profit']}
+                          (market_breadth < config["market_breadth_exit"]) or \
+                          (days_held >= config["max_hold_days"]) or \
+                          (days_held >= 2 and (rank_val > config["max_entry_rank"] or prob_val < config["sell_prob_threshold"]))
 
-        # 5. الدخول في أسهم جديدة (فقط إذا كان السوق آمناً)
-        available_slots = 3 - len(new_holdings)
-        if available_slots > 0 and market_breadth > 0.35:
-            potential_buys = top_candidates[
-                (top_candidates['pred_return'] >= MIN_WEEKLY_THRESHOLD) & 
-                (~top_candidates['symbol'].isin(new_holdings.keys()))
-            ].head(available_slots)
-            
+            if should_sell:
+                daily_portfolio_return -= (COMMISSION + SLIPPAGE) * weight
+            else:
+                new_holdings[symbol] = {
+                    'entry_price': info['entry_price'], 
+                    'stop_loss': new_stop, 
+                    'take_profit': info['take_profit'],
+                    'weight': weight,
+                    'days_held': days_held
+                }
+
+        # 5. الدخول في صفقات جديدة
+        available_slots = config["max_positions"] - len(new_holdings)
+        if available_slots > 0 and market_breadth > config["min_entry_market_breadth"]:
+            potential_buys = entry_candidates(day_data, new_holdings.keys(), config).head(available_slots)
+
             for _, row in potential_buys.iterrows():
                 symbol = row['symbol']
                 stock_next = next_day_all[next_day_all['symbol'] == symbol]
                 if not stock_next.empty:
                     next_ret = stock_next['daily_return'].values[0]
-                    # تكلفة الشراء
-                    portfolio_value *= (1 - (COMMISSION + SLIPPAGE))
-                    # عائد اليوم الأول
-                    daily_returns_sum += next_ret
                     atr = row['atr'] if 'atr' in row else row['close'] * 0.02
+                    atr_pct = atr / row['close'] if row['close'] > 0 else 0.02
+                    
+                    weight = min(1 / config["max_positions"], config["risk_per_position"] / max(0.001, atr_pct))
+                    
+                    daily_portfolio_return -= (COMMISSION + SLIPPAGE) * weight
+                    daily_portfolio_return += next_ret * weight
+                    
                     new_holdings[symbol] = {
                         'entry_price': row['close'],
-                        'stop_loss': row['close'] - (STOP_LOSS_ATR_MULT * atr),
-                        'take_profit': row['close'] + (TAKE_PROFIT_MULT * STOP_LOSS_ATR_MULT * atr)
+                        'stop_loss': row['close'] - (config["stop_loss_atr_mult"] * atr),
+                        'take_profit': row['close'] + (config["take_profit_atr_mult"] * config["stop_loss_atr_mult"] * atr),
+                        'weight': weight,
+                        'days_held': 0
                     }
 
-        # حساب العائد اليومي للمحفظة ككل (تبسيط: نفترض الوزن متساوي)
-        # ملاحظة: تم خصم التكاليف مباشرة من portfolio_value، لذا returns هنا للعرض
-        active_count = len(new_holdings)
-        avg_ret = (daily_returns_sum / active_count) if active_count > 0 else 0
-        if active_count > 0:
-            portfolio_value *= (1 + avg_ret)
-            
+        portfolio_value *= (1 + daily_portfolio_return)
         current_holdings = new_holdings
-        
+
         portfolio_history.append({
             'date': next_date,
-            'returns': avg_ret,
+            'returns': daily_portfolio_return,
             'value': portfolio_value,
             'selected_symbols': ",".join(current_holdings.keys()),
-            'avg_pred_return': float(day_data[day_data['symbol'].isin(current_holdings.keys())]['pred_return'].mean()) if current_holdings else 0.0
+            'avg_prob': float(day_data[day_data['symbol'].isin(current_holdings.keys())]['prob_win'].mean()) if current_holdings else 0.0
         })
 
     if not portfolio_history:
@@ -181,15 +197,12 @@ def run_backtest(processed_file_path, model_path, features_path):
         return
 
     perf_df = pd.DataFrame(portfolio_history).set_index('date')
-    # تجريد المنطقة الزمنية من الفهرس
     perf_df.index = pd.to_datetime(perf_df.index).tz_localize(None)
     
-    # تجهيز المعيار (الراجحي) وتجريده من المنطقة الزمنية
     benchmark_df = df[df['symbol'] == '1120.SR'][['date', 'daily_return']].copy()
     benchmark_df['date'] = pd.to_datetime(benchmark_df['date']).dt.tz_localize(None)
     benchmark = benchmark_df.set_index('date')['daily_return']
     
-    # تنظيف المكررات وتوحيد الفهرس
     perf_df = perf_df[~perf_df.index.duplicated(keep='first')]
     benchmark = benchmark[~benchmark.index.duplicated(keep='first')]
     
@@ -197,32 +210,21 @@ def run_backtest(processed_file_path, model_path, features_path):
     returns_series = perf_df.loc[common_idx, 'returns']
     benchmark_series = benchmark.loc[common_idx]
 
-    # إضافة ضوضاء صغيرة جداً لمنع انهيار quantstats إذا كانت التداولات قليلة
     if returns_series.std() == 0:
         returns_series = returns_series + np.random.normal(0, 1e-10, len(returns_series))
 
-    # التأكد النهائي الحاسم من تجريد المناطق الزمنية
-    returns_series.index = returns_series.index.tz_localize(None)
-    benchmark_series.index = benchmark_series.index.tz_localize(None)
-
-    print("\n--- نتائج الاختبار العكسي الواقعي Walk-Forward (آخر 6 أشهر) ---")
+    print("\n--- نتائج الاختبار العكسي (Alpha V6.0 - Adaptive) ---")
     print(f"قيمة المحفظة النهائية: {portfolio_value:.2f}")
-    print(f"إجمالي عائد الاستراتيجية: {((portfolio_value / 100.0) - 1) * 100:.2f}%")
-    print(f"تم احتساب عمولة {COMMISSION:.3%} وانزلاق سعري {SLIPPAGE:.3%} لكل دخول/خروج.")
+    print(f"إجمالي العائد الصافي: {((portfolio_value / 100.0) - 1) * 100:.2f}%")
+    summary = summarize_returns(returns_series)
+    print(f"شارب: {summary['sharpe']:.2f} | أقصى هبوط: {summary['max_drawdown'] * 100:.2f}% | أيام النشاط: {summary['active_days']}")
     
-    if not os.path.exists("reports"):
-        os.makedirs("reports")
-    
+    if not os.path.exists("reports"): os.makedirs("reports")
     try:
-        # إرسال البيانات كـ Series "خام" تماماً
-        qs.reports.html(returns_series, benchmark=benchmark_series, output='reports/tasi_ai_backtest_report.html', title='استراتيجية تاسي الذكية ضد المعيار')
-        print("تم حفظ التقرير الكامل بنجاح في reports/tasi_ai_backtest_report.html")
-    except Exception as e:
-        print(f"خطأ أثناء توليد HTML: {e}")
-        print(f"نسبة شارب: {qs.stats.sharpe(returns_series):.2f}")
+        qs.reports.html(returns_series, benchmark=benchmark_series, output='reports/tasi_ai_backtest_report.html')
+    except: pass
     
     perf_df.to_csv("data/backtest_results.csv")
 
 if __name__ == "__main__":
-    # استخدام النموذج اليومي الجديد للاختبار العكسي
-    run_backtest("data/tasi_processed.csv", "models/tasi_rf_model_daily.joblib", "models/feature_names.joblib")
+    run_backtest("data/tasi_processed.csv", "models/tasi_rf_model_weekly.joblib", "models/feature_names.joblib")

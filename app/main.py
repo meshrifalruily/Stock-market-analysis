@@ -10,51 +10,56 @@ import subprocess
 import sys
 from datetime import datetime
 from typing import List, Dict
+from scripts.company_names import get_arabic_company_name
+from scripts.paper_portfolio import reset_portfolio, sync_portfolio_with_recommendations
+from scripts.strategy_config import load_strategy_config
+from scripts.strategy_rules import add_hybrid_scores, entry_diagnostics, filter_main_market
 
-app = FastAPI(title="TASI AI Pro Suite", description="منصة التحليل المالي المتطورة")
+app = FastAPI(title="منصة تاسي الذكية", description="منصة تحليل احتمالي لأسهم السوق السعودي الرئيسي")
 
 # Paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 MODEL_DAILY_PATH = os.path.join(ROOT_DIR, "models/tasi_rf_model_daily.joblib")
 MODEL_WEEKLY_PATH = os.path.join(ROOT_DIR, "models/tasi_rf_model_weekly.joblib")
+MODEL_MEDIUM_PATH = os.path.join(ROOT_DIR, "models/tasi_rf_model_medium.joblib")
 DATA_PATH = os.path.join(ROOT_DIR, "data/tasi_processed.csv")
 FEATURES_PATH = os.path.join(ROOT_DIR, "models/feature_names.joblib")
 FEATURE_MEDIANS_PATH = os.path.join(ROOT_DIR, "models/feature_medians.joblib")
 BACKTEST_PATH = os.path.join(ROOT_DIR, "data/backtest_results.csv")
-MIN_DAILY_BUY_RETURN = 0.005
-MIN_WEEKLY_BUY_RETURN = 0.005 # المتوافق مع الاختبار العكسي الناجح 12.71%
-MARKET_BREATH_ENTRY = 0.30
-MARKET_BREATH_EXIT = 0.20
-MIN_AVG_TRADED_VALUE = float(os.getenv("TASI_MIN_AVG_TRADED_VALUE", "1000000"))
-HEATMAP_LIMIT = int(os.getenv("TASI_HEATMAP_LIMIT", "60"))
+PAPER_PORTFOLIO_PATH = os.path.join(ROOT_DIR, "data/paper_portfolio.json")
 
-# Arabic Names Mapping
-ARABIC_NAMES = {
-    "1120.SR": "مصرف الراجحي", "1180.SR": "الأهلي السعودي", "2222.SR": "أرامكو السعودية",
-    "2010.SR": "سابك", "7010.SR": "إس تي سي", "1150.SR": "مصرف الإنماء",
-    "2350.SR": "كيان السعودية", "2020.SR": "سابك للمغذيات", "4003.SR": "إكسترا",
-    "1010.SR": "بنك الرياض", "1111.SR": "تداول السعودية", "7020.SR": "اتحاد اتصالات",
-    "5110.SR": "كهرباء السعودية", "2080.SR": "مجموعة تداول", "1211.SR": "معادن",
-    "4260.SR": "بدجت السعودية", "4030.SR": "البحري", "2280.SR": "المراعي",
-    "4190.SR": "جرير", "1060.SR": "البنك السعودي الفرنسي"
-}
+HEATMAP_LIMIT = int(os.getenv("TASI_HEATMAP_LIMIT", "60"))
+MARKET_SCOPE_LABEL = "السوق السعودي الرئيسي فقط"
+NOMU_PREFIXES = ("95", "96")
+STRATEGY_CONFIG = load_strategy_config()
+CONFIDENCE_THRESHOLD_DAILY = 0.65
+CONFIDENCE_THRESHOLD_WEEKLY = STRATEGY_CONFIG["buy_prob_threshold"]
+CONFIDENCE_THRESHOLD_MEDIUM = 0.70
 
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 def load_system_assets():
     if not all(os.path.exists(p) for p in [MODEL_DAILY_PATH, MODEL_WEEKLY_PATH, DATA_PATH]):
-        return None, None, None, None, None
+        return None, None, None, None, None, None
     try:
         m_daily = joblib.load(MODEL_DAILY_PATH)
         m_weekly = joblib.load(MODEL_WEEKLY_PATH)
+        m_medium = joblib.load(MODEL_MEDIUM_PATH) if os.path.exists(MODEL_MEDIUM_PATH) else None
         features = joblib.load(FEATURES_PATH)
         feature_medians = joblib.load(FEATURE_MEDIANS_PATH) if os.path.exists(FEATURE_MEDIANS_PATH) else None
         df = pd.read_csv(DATA_PATH)
         df['date'] = pd.to_datetime(df['date']).dt.tz_localize(None)
-        df['اسم الشركة'] = df['symbol'].map(ARABIC_NAMES).fillna(df['company name'])
-        return df, m_daily, m_weekly, features, feature_medians
-    except: return None, None, None, None, None
+        df = filter_main_market(df)
+        df['اسم الشركة'] = df.apply(
+            lambda row: get_arabic_company_name(
+                row['symbol'],
+                row.get('company name arabic') or row.get('company name', "")
+            ),
+            axis=1
+        )
+        return df, m_daily, m_weekly, m_medium, features, feature_medians
+    except: return None, None, None, None, None, None
 
 def prepare_prediction_features(rows, features, medians):
     X = rows[features].replace([np.inf, -np.inf], np.nan)
@@ -64,26 +69,53 @@ def prepare_prediction_features(rows, features, medians):
 
 def get_xai_reason(row):
     reasons = []
-    if row['rsi'] > 60: reasons.append("زخم سعري (RSI)")
-    if row['sentiment'] > 0.7: reasons.append("أخبار إيجابية")
-    if row['tv_signal'] >= 1: reasons.append("توصية TradingView")
-    if row['oil_correlation'] > 0.6: reasons.append("دعم النفط")
-    return " + ".join(reasons[:2]) if reasons else "نمط فني صاعد"
+    if row['rsi'] > 60: reasons.append("زخم سعري قوي")
+    if row['sentiment'] > 0.7: reasons.append("تدفق أخبار إيجابي")
+    if row['tv_signal'] >= 1: reasons.append("إجماع فني (T.View)")
+    if row['relative_sector_alpha'] > 0: reasons.append("أداء أقوى من القطاع")
+    return " + ".join(reasons[:2]) if reasons else "قوة نسبية متزايدة"
 
-def build_trade_setup(current_price, atr, p_daily, p_weekly, is_liquid=True):
-    daily_target = current_price * (1 + p_daily) if p_daily > MIN_DAILY_BUY_RETURN else None
-    weekly_target = current_price * (1 + p_weekly) if p_weekly > MIN_WEEKLY_BUY_RETURN else None
-    stop_price = current_price - (1.5 * atr) if atr > 0 else current_price * 0.97
-    is_actionable = is_liquid and (daily_target is not None or weekly_target is not None)
+def build_trade_setup(current_price, atr, p_daily, p_weekly, p_medium, is_liquid=True, return_5d=0, hybrid_rank=999, rsi=50, adx=0, above_sma20=False):
+    valid_price = current_price > 0
+    valid_atr = atr > 0 and valid_price
+    atr_risk = atr if valid_atr else current_price * 0.02
+    stop_distance = STRATEGY_CONFIG["stop_loss_atr_mult"] * atr_risk
+    target_distance = STRATEGY_CONFIG["take_profit_atr_mult"] * stop_distance
 
-    if not is_liquid:
+    daily_target = current_price + max(current_price * 0.01, stop_distance) if valid_price and p_daily > CONFIDENCE_THRESHOLD_DAILY else None
+    weekly_target = current_price + max(current_price * 0.03, target_distance) if valid_price and p_weekly > CONFIDENCE_THRESHOLD_WEEKLY else None
+    medium_target = current_price + max(current_price * 0.06, target_distance * 1.5) if valid_price and p_medium and p_medium > CONFIDENCE_THRESHOLD_MEDIUM else None
+
+    stop_price = max(0.01, current_price - stop_distance) if valid_price else 0
+    
+    # حماية ضد الشراء في القمة أو محاولة التقاط سكين هابط
+    is_not_overextended = STRATEGY_CONFIG["min_entry_return_5d"] <= return_5d <= STRATEGY_CONFIG["max_entry_return_5d"]
+    passes_technical_gate = (
+        hybrid_rank <= STRATEGY_CONFIG["max_entry_rank"] and
+        STRATEGY_CONFIG["min_entry_rsi"] <= rsi <= STRATEGY_CONFIG["max_entry_rsi"] and
+        adx >= STRATEGY_CONFIG["min_entry_adx"] and
+        above_sma20
+    )
+    
+    is_actionable = bool(valid_price and is_liquid and is_not_overextended and passes_technical_gate and (p_weekly > CONFIDENCE_THRESHOLD_WEEKLY))
+
+    if not valid_price:
+        action = "بيانات سعر غير كافية"
+        action_class = "avoid"
+    elif not is_liquid:
         action = "سيولة منخفضة"
         action_class = "avoid"
-    elif daily_target is not None:
-        action = "شراء"
+    elif not is_not_overextended:
+        action = "متضخم سعرياً"
+        action_class = "avoid"
+    elif is_actionable and p_weekly > 0.60:
+        action = "شراء عالي الجودة"
         action_class = "buy"
-    elif weekly_target is not None:
-        action = "مراقبة للمدى الأسبوعي"
+    elif is_actionable:
+        action = "شراء مشروط"
+        action_class = "buy"
+    elif p_daily > CONFIDENCE_THRESHOLD_DAILY:
+        action = "مراقبة زخم يومي"
         action_class = "watch"
     else:
         action = "انتظار"
@@ -92,6 +124,7 @@ def build_trade_setup(current_price, atr, p_daily, p_weekly, is_liquid=True):
     return {
         "target_daily": daily_target,
         "target_weekly": weekly_target,
+        "target_medium": medium_target,
         "stop": stop_price,
         "is_actionable": is_actionable,
         "action": action,
@@ -99,7 +132,7 @@ def build_trade_setup(current_price, atr, p_daily, p_weekly, is_liquid=True):
     }
 
 def get_market_intelligence():
-    df, m_daily, m_weekly, features, feature_medians = load_system_assets()
+    df, m_daily, m_weekly, m_medium, features, feature_medians = load_system_assets()
     if df is None: return []
 
     latest_data = []
@@ -109,82 +142,111 @@ def get_market_intelligence():
     market_row = df[df['date'] == current_date_max]
     market_breadth = market_row['market_breadth_sma50'].iloc[0] if 'market_breadth_sma50' in market_row.columns else 0.5
     
-    for (symbol, name), group in df.groupby(['symbol', 'اسم الشركة']):
-        group = group.sort_values('date')
-        latest_row = group.iloc[-1:].copy()
-        
-        X = prepare_prediction_features(latest_row, features, feature_medians)
-        p_daily = float(m_daily.predict(X)[0])
-        p_weekly = float(m_weekly.predict(X)[0])
+    # 1. استخراج أحدث صف لكل سهم دفعة واحدة
+    latest_rows = df.sort_values('date').groupby(['symbol', 'اسم الشركة']).tail(1).copy()
+    
+    # 2. تجهيز الميزات للجميع مرة واحدة
+    X_all = prepare_prediction_features(latest_rows, features, feature_medians)
+    
+    # 3. التنبؤ للجميع (Probabilities)
+    latest_rows['p_daily'] = m_daily.predict_proba(X_all)[:, 1]
+    latest_rows['p_weekly'] = m_weekly.predict_proba(X_all)[:, 1]
+    latest_rows['p_medium'] = m_medium.predict_proba(X_all)[:, 1] if m_medium else 0.5
+    latest_rows['prob_win'] = latest_rows['p_weekly']
+    latest_rows = add_hybrid_scores(latest_rows)
+    latest_rows['hybrid_rank'] = latest_rows['rank']
+    
+    for _, row in latest_rows.iterrows():
+        symbol = row['symbol']
+        name = row['اسم الشركة']
+        p_daily = float(row['p_daily'])
+        p_weekly = float(row['p_weekly'])
+        p_medium = float(row['p_medium'])
         
         # حماية ضد القيم المفقودة
-        current_price = float(latest_row['close'].values[0]) if not pd.isna(latest_row['close'].values[0]) else 0
-        atr = float(latest_row['atr'].values[0]) if 'atr' in latest_row.columns and not pd.isna(latest_row['atr'].values[0]) else 0
-        sentiment_val = float(latest_row['sentiment'].values[0]) if 'sentiment' in latest_row.columns and not pd.isna(latest_row['sentiment'].values[0]) else 0.5
-        current_sector = latest_row['sector'].values[0] if 'sector' in latest_row.columns else "عام"
+        current_price = float(row['close']) if not pd.isna(row['close']) else 0
+        atr = float(row['atr']) if 'atr' in latest_rows.columns and not pd.isna(row['atr']) else 0
+        sentiment_val = float(row['sentiment']) if 'sentiment' in latest_rows.columns and not pd.isna(row['sentiment']) else 0.5
+        ret_5d = float(row['return_5d']) if 'return_5d' in latest_rows.columns else 0
+        current_sector = row['sector'] if 'sector' in latest_rows.columns else "عام"
         avg_traded_value = (
-            float(latest_row['avg_traded_value_20d'].values[0])
-            if 'avg_traded_value_20d' in latest_row.columns and not pd.isna(latest_row['avg_traded_value_20d'].values[0])
+            float(row['avg_traded_value_20d'])
+            if 'avg_traded_value_20d' in latest_rows.columns and not pd.isna(row['avg_traded_value_20d'])
             else 0
         )
-        is_liquid = avg_traded_value >= MIN_AVG_TRADED_VALUE
+        is_liquid = avg_traded_value >= STRATEGY_CONFIG["min_avg_traded_value"]
         
-        setup = build_trade_setup(current_price, atr, p_daily, p_weekly, is_liquid)
+        setup = build_trade_setup(
+            current_price, atr, p_daily, p_weekly, p_medium, is_liquid, ret_5d,
+            hybrid_rank=float(row['hybrid_rank']),
+            rsi=float(row['rsi']) if 'rsi' in latest_rows.columns and not pd.isna(row['rsi']) else 50,
+            adx=float(row['tv_adx']) if 'tv_adx' in latest_rows.columns and not pd.isna(row['tv_adx']) else 0,
+            above_sma20=bool(row['close'] > row['sma_20']) if 'sma_20' in latest_rows.columns else False
+        )
         
         # تعديل الحالة بناءً على وضع السوق
         action = setup['action']
         is_actionable = setup['is_actionable']
         action_class = setup['action_class']
         
-        if market_breadth < MARKET_BREATH_ENTRY and is_actionable:
+        if market_breadth < STRATEGY_CONFIG["min_entry_market_breadth"] and is_actionable:
             action = "تحذير: ضعف عام"
             is_actionable = False
             action_class = "avoid"
-        elif market_breadth < MARKET_BREATH_EXIT:
+        elif market_breadth < STRATEGY_CONFIG["market_breadth_exit"]:
             action = "خطر: خروج عام"
             is_actionable = False
             action_class = "avoid"
 
         stop_price = setup['stop'] if not np.isnan(setup['stop']) else current_price * 0.97
+        rejection_reason = entry_diagnostics(row, STRATEGY_CONFIG, market_breadth)
 
         latest_data.append({
             'company_name': name,
             'symbol': symbol,
             'sector': current_sector,
-            'reason': get_xai_reason(latest_row.iloc[0]),
+            'market': row['market'] if 'market' in latest_rows.columns else "السوق الرئيسي",
+            'reason': get_xai_reason(row),
+            'entry_status': rejection_reason,
             'current_price': round(current_price, 2),
             'sentiment': round(sentiment_val * 100, 1),
-            'predicted_daily': round(p_daily * 100, 2),
-            'predicted_weekly': round(p_weekly * 100, 2),
+            'predicted_daily': round(p_daily * 100, 1), # ثقة اليومي
+            'predicted_weekly': round(p_weekly * 100, 1), # ثقة الأسبوعي
+            'predicted_medium': round(p_medium * 100, 1), # ثقة أسبوعين
             'entry': round(current_price, 2),
             'target_daily': round(setup['target_daily'], 2) if setup['target_daily'] is not None else None,
             'target_weekly': round(setup['target_weekly'], 2) if setup['target_weekly'] is not None else None,
+            'target_medium': round(setup['target_medium'], 2) if setup['target_medium'] is not None else None,
             'stop': round(stop_price, 2),
-            'sharpe': round(float(latest_row['sharpe_ratio_rolling'].values[0]), 2) if 'sharpe_ratio_rolling' in latest_row.columns else 0,
+            'sharpe': round(float(row['sharpe_ratio_rolling']), 2) if 'sharpe_ratio_rolling' in latest_rows.columns else 0,
+            'tv_adx': round(float(row['tv_adx']), 1) if 'tv_adx' in latest_rows.columns else 0,
             'is_actionable': is_actionable,
             'action': action,
             'action_class': action_class,
             'is_liquid': is_liquid,
             'avg_traded_value_20d': round(avg_traded_value, 0),
-            'market_breadth': market_breadth
+            'market_breadth': market_breadth,
+            'hybrid_score': round(float(row['hybrid_score']), 4),
+            'hybrid_rank': int(row['hybrid_rank'])
         })
     
     return sorted(
         latest_data,
-        key=lambda x: (x['is_actionable'], x['predicted_daily'], x['predicted_weekly']),
+        key=lambda x: (bool(x['is_actionable']), -x['hybrid_rank'], x['predicted_weekly'] or 0.0),
         reverse=True
     )
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
-    df, _, _, _, _ = load_system_assets()
+    df, _, _, _, _, _ = load_system_assets()
     intelligence = get_market_intelligence()
     
     # تحليلات إضافية للواجهة
     sectors = {}
     if intelligence:
         pdf = pd.DataFrame(intelligence)
-        sectors = pdf.groupby('sector')['predicted_daily'].mean().to_dict()
+        sectors = pdf.groupby('sector')['predicted_weekly'].mean().to_dict()
+        
     top_3 = [stock for stock in intelligence if stock['is_actionable']][:3]
     heatmap_predictions = intelligence[:HEATMAP_LIMIT]
 
@@ -196,6 +258,13 @@ async def read_root(request: Request):
         backtest = {'return': round(float(bt_df['value'].iloc[-1] - 100.0), 2)}
 
     market_breadth = intelligence[0]['market_breadth'] if intelligence else 0.5
+    paper_portfolio = sync_portfolio_with_recommendations(
+        intelligence,
+        data_date,
+        STRATEGY_CONFIG,
+        path=PAPER_PORTFOLIO_PATH,
+        initial_capital=1000.0,
+    ) if intelligence else None
 
     return templates.TemplateResponse(
         request=request, name="index.html",
@@ -205,6 +274,9 @@ async def read_root(request: Request):
             "sectors": sectors, "backtest": backtest, "data_date": data_date,
             "market_breadth": round(market_breadth * 100, 1),
             "coverage_count": len(intelligence),
+            "market_scope": MARKET_SCOPE_LABEL,
+            "strategy_config": STRATEGY_CONFIG,
+            "paper_portfolio": paper_portfolio,
             "last_update": datetime.now().strftime("%H:%M")
         }
     )
@@ -215,10 +287,10 @@ async def stock_detail(request: Request, symbol: str):
     stock = next((item for item in intelligence if item['symbol'] == symbol), None)
     
     if not stock:
-        return JSONResponse(status_code=404, content={"message": "Stock not found"})
+        return JSONResponse(status_code=404, content={"message": "السهم غير موجود ضمن نطاق السوق الرئيسي"})
         
     # جلب متوسط القطاع للمقارنة
-    sector_avg = np.mean([s['predicted_daily'] for s in intelligence if s['sector'] == stock['sector']])
+    sector_avg = np.mean([s['predicted_weekly'] for s in intelligence if s['sector'] == stock['sector']])
     
     return templates.TemplateResponse(
         request=request, name="stock_detail.html",
@@ -231,7 +303,7 @@ async def stock_detail(request: Request, symbol: str):
     )
 
 @app.post("/api/update")
-async def update_all(background_tasks: BackgroundTasks):
+async def update_system(background_tasks: BackgroundTasks):
     def run():
         try:
             for s in ["fetch_data.py", "preprocess.py", "train_model.py", "backtest.py"]:
@@ -239,6 +311,11 @@ async def update_all(background_tasks: BackgroundTasks):
         except: pass
     background_tasks.add_task(run)
     return {"status": "جاري التحديث الشامل للأنظمة في الخلفية..."}
+
+@app.post("/api/portfolio/reset")
+async def reset_paper_portfolio():
+    reset_portfolio(path=PAPER_PORTFOLIO_PATH, initial_capital=1000.0)
+    return {"status": "تمت إعادة المحفظة الافتراضية إلى 1,000 ريال."}
 
 if __name__ == "__main__":
     import uvicorn

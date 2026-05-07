@@ -1,53 +1,97 @@
 {
   "daily": {
-    "selected_model": "hist_gradient_boosting",
+    "selected_model": "random_forest",
     "validation": {
       "random_forest": {
-        "mae": 0.014925061352876806,
-        "rmse": 0.023515658107757034,
-        "direction_accuracy": 0.44184021607790175,
-        "top3_avg_actual_return": -0.000687854850357493,
-        "score": -0.015612916203234298
+        "accuracy": 0.5496277582175397,
+        "f1": 0.38943341227910366,
+        "auc": 0.5305097977881563,
+        "strategy_avg_return": 0.0,
+        "strategy_total_return": 0.0,
+        "selected_days": 0,
+        "score": 5.305097977881563
       },
       "extra_trees": {
-        "mae": 0.015315520440714627,
-        "rmse": 0.023994897086577455,
-        "direction_accuracy": 0.44127159002061267,
-        "top3_avg_actual_return": -0.0023635010154437284,
-        "score": -0.017679021456158357
+        "accuracy": 0.5533636143736393,
+        "f1": 0.40424464042446406,
+        "auc": 0.53038294322576,
+        "strategy_avg_return": 0.0,
+        "strategy_total_return": 0.0,
+        "selected_days": 0,
+        "score": 5.3038294322576
       },
       "hist_gradient_boosting": {
-        "mae": 0.01541843340513558,
-        "rmse": 0.023694711851143177,
-        "direction_accuracy": 0.4569621152889331,
-        "top3_avg_actual_return": 0.0010300905448550185,
-        "score": -0.014388342860280562
+        "accuracy": 0.5477732684709866,
+        "f1": 0.38148801646816644,
+        "auc": 0.5250083801017266,
+        "strategy_avg_return": 0.0,
+        "strategy_total_return": 0.0,
+        "selected_days": 0,
+        "score": 5.250083801017266
       }
     }
   },
   "weekly": {
-    "selected_model": "hist_gradient_boosting",
+    "selected_model": "random_forest",
     "validation": {
       "random_forest": {
-        "mae": 0.03920205390057252,
-        "rmse": 0.055545289177209224,
-        "direction_accuracy": 0.5436790662704521,
-        "top3_avg_actual_return": -0.009135925615659193,
-        "score": -0.04833797951623171
+        "accuracy": 0.7088423502036068,
+        "f1": 0.26431482595042427,
+        "auc": 0.5880862709656117,
+        "strategy_avg_return": 0.0,
+        "strategy_total_return": 0.0,
+        "selected_days": 0,
+        "score": 5.8808627096561175
       },
       "extra_trees": {
-        "mae": 0.037680510321890175,
-        "rmse": 0.05259433251726513,
-        "direction_accuracy": 0.5190827396083205,
-        "top3_avg_actual_return": -0.007283041608731004,
-        "score": -0.04496355193062118
+        "accuracy": 0.6544767042149241,
+        "f1": 0.29424790710234944,
+        "auc": 0.5835798352882823,
+        "strategy_avg_return": 0.0,
+        "strategy_total_return": 0.0,
+        "selected_days": 0,
+        "score": 5.835798352882823
       },
       "hist_gradient_boosting": {
-        "mae": 0.039560399964989605,
-        "rmse": 0.05423163200143907,
-        "direction_accuracy": 0.5307543589559988,
-        "top3_avg_actual_return": -0.003393414147141557,
-        "score": -0.042953814112131165
+        "accuracy": 0.6906763974826802,
+        "f1": 0.24955093661791122,
+        "auc": 0.5544789604376772,
+        "strategy_avg_return": 0.0,
+        "strategy_total_return": 0.0,
+        "selected_days": 0,
+        "score": 5.544789604376772
+      }
+    }
+  },
+  "medium": {
+    "selected_model": "random_forest",
+    "validation": {
+      "random_forest": {
+        "accuracy": 0.6969925014110248,
+        "f1": 0.29129997485541864,
+        "auc": 0.5863387985327089,
+        "strategy_avg_return": 0.0,
+        "strategy_total_return": 0.0,
+        "selected_days": 0,
+        "score": 5.863387985327089
+      },
+      "extra_trees": {
+        "accuracy": 0.63576746311178,
+        "f1": 0.3136837840575306,
+        "auc": 0.5842635062273596,
+        "strategy_avg_return": 0.0,
+        "strategy_total_return": 0.0,
+        "selected_days": 0,
+        "score": 5.842635062273596
+      },
+      "hist_gradient_boosting": {
+        "accuracy": 0.6471362915580402,
+        "f1": 0.2822937735745914,
+        "auc": 0.5592104591986842,
+        "strategy_avg_return": 0.0,
+        "strategy_total_return": 0.0,
+        "selected_days": 0,
+        "score": 5.592104591986842
       }
     }
   }

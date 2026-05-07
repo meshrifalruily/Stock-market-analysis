@@ -1,0 +1,752 @@
+[
+  {
+    "score": 10.696252112040098,
+    "summary": {
+      "total_return": 0.11193243914714479,
+      "sharpe": 1.7704194279585206,
+      "max_drawdown": -0.06305241889224322,
+      "active_days": 38,
+      "win_rate": 0.5,
+      "portfolio_value": 111.19324391471446,
+      "selected_days": 33
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.55,
+      "min_entry_market_breadth": 0.45,
+      "max_entry_rank": 15,
+      "sell_prob_threshold": 0.5,
+      "max_hold_days": 2,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 10.696252112040098,
+    "summary": {
+      "total_return": 0.11193243914714479,
+      "sharpe": 1.7704194279585206,
+      "max_drawdown": -0.06305241889224322,
+      "active_days": 38,
+      "win_rate": 0.5,
+      "portfolio_value": 111.19324391471446,
+      "selected_days": 33
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.55,
+      "min_entry_market_breadth": 0.45,
+      "max_entry_rank": 15,
+      "sell_prob_threshold": 0.54,
+      "max_hold_days": 2,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 10.507772916313574,
+    "summary": {
+      "total_return": 0.10929467315314456,
+      "sharpe": 1.4329207010219116,
+      "max_drawdown": -0.05142150901067499,
+      "active_days": 49,
+      "win_rate": 0.5306122448979592,
+      "portfolio_value": 110.92946731531444,
+      "selected_days": 47
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.5,
+      "min_entry_market_breadth": 0.4,
+      "max_entry_rank": 10,
+      "sell_prob_threshold": 0.54,
+      "max_hold_days": 5,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 10.024492962567873,
+    "summary": {
+      "total_return": 0.11279462870675738,
+      "sharpe": 1.6296879330759078,
+      "max_drawdown": -0.07399003615443456,
+      "active_days": 45,
+      "win_rate": 0.5333333333333333,
+      "portfolio_value": 111.2794628706758,
+      "selected_days": 42
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.55,
+      "min_entry_market_breadth": 0.4,
+      "max_entry_rank": 15,
+      "sell_prob_threshold": 0.5,
+      "max_hold_days": 2,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 10.024492962567873,
+    "summary": {
+      "total_return": 0.11279462870675738,
+      "sharpe": 1.6296879330759078,
+      "max_drawdown": -0.07399003615443456,
+      "active_days": 45,
+      "win_rate": 0.5333333333333333,
+      "portfolio_value": 111.2794628706758,
+      "selected_days": 42
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.55,
+      "min_entry_market_breadth": 0.4,
+      "max_entry_rank": 15,
+      "sell_prob_threshold": 0.54,
+      "max_hold_days": 2,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 9.07392778828525,
+    "summary": {
+      "total_return": 0.09211940965907184,
+      "sharpe": 1.5756936414854605,
+      "max_drawdown": -0.050031072797002474,
+      "active_days": 45,
+      "win_rate": 0.5111111111111111,
+      "portfolio_value": 109.21194096590717,
+      "selected_days": 42
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.55,
+      "min_entry_market_breadth": 0.4,
+      "max_entry_rank": 10,
+      "sell_prob_threshold": 0.5,
+      "max_hold_days": 2,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 9.07392778828525,
+    "summary": {
+      "total_return": 0.09211940965907184,
+      "sharpe": 1.5756936414854605,
+      "max_drawdown": -0.050031072797002474,
+      "active_days": 45,
+      "win_rate": 0.5111111111111111,
+      "portfolio_value": 109.21194096590717,
+      "selected_days": 42
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.55,
+      "min_entry_market_breadth": 0.4,
+      "max_entry_rank": 10,
+      "sell_prob_threshold": 0.54,
+      "max_hold_days": 2,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 9.056744816502976,
+    "summary": {
+      "total_return": 0.09592976640134587,
+      "sharpe": 1.3565624179347577,
+      "max_drawdown": -0.05142150901067499,
+      "active_days": 49,
+      "win_rate": 0.40816326530612246,
+      "portfolio_value": 109.5929766401345,
+      "selected_days": 47
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.4,
+      "min_entry_market_breadth": 0.4,
+      "max_entry_rank": 10,
+      "sell_prob_threshold": 0.54,
+      "max_hold_days": 5,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 8.476275105344715,
+    "summary": {
+      "total_return": 0.08441306562444195,
+      "sharpe": 1.5442486356853475,
+      "max_drawdown": -0.045628088212550044,
+      "active_days": 45,
+      "win_rate": 0.4666666666666667,
+      "portfolio_value": 108.44130656244421,
+      "selected_days": 43
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.55,
+      "min_entry_market_breadth": 0.4,
+      "max_entry_rank": 10,
+      "sell_prob_threshold": 0.54,
+      "max_hold_days": 5,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 7.964488994263654,
+    "summary": {
+      "total_return": 0.07752119604841745,
+      "sharpe": 1.5217066286590033,
+      "max_drawdown": -0.04140381107133195,
+      "active_days": 27,
+      "win_rate": 0.5925925925925926,
+      "portfolio_value": 107.75211960484178,
+      "selected_days": 24
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.55,
+      "min_entry_market_breadth": 0.55,
+      "max_entry_rank": 15,
+      "sell_prob_threshold": 0.54,
+      "max_hold_days": 3,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 7.779225400575196,
+    "summary": {
+      "total_return": 0.085640953434869,
+      "sharpe": 1.2262796857815883,
+      "max_drawdown": -0.052485789431681695,
+      "active_days": 39,
+      "win_rate": 0.5384615384615384,
+      "portfolio_value": 108.56409534348683,
+      "selected_days": 36
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.5,
+      "min_entry_market_breadth": 0.45,
+      "max_entry_rank": 10,
+      "sell_prob_threshold": 0.5,
+      "max_hold_days": 2,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 7.779225400575196,
+    "summary": {
+      "total_return": 0.085640953434869,
+      "sharpe": 1.2262796857815883,
+      "max_drawdown": -0.052485789431681695,
+      "active_days": 39,
+      "win_rate": 0.5384615384615384,
+      "portfolio_value": 108.56409534348683,
+      "selected_days": 36
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.5,
+      "min_entry_market_breadth": 0.45,
+      "max_entry_rank": 10,
+      "sell_prob_threshold": 0.54,
+      "max_hold_days": 2,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 7.6932454719688685,
+    "summary": {
+      "total_return": 0.08524105120024061,
+      "sharpe": 1.3199463849811857,
+      "max_drawdown": -0.05621558451053943,
+      "active_days": 48,
+      "win_rate": 0.4375,
+      "portfolio_value": 108.524105120024,
+      "selected_days": 46
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.5,
+      "min_entry_market_breadth": 0.4,
+      "max_entry_rank": 10,
+      "sell_prob_threshold": 0.5,
+      "max_hold_days": 3,
+      "max_entry_return_5d": 0.05,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 7.532487776900499,
+    "summary": {
+      "total_return": 0.0805810581414994,
+      "sharpe": 1.4474012837171548,
+      "max_drawdown": -0.05393439925650345,
+      "active_days": 38,
+      "win_rate": 0.5,
+      "portfolio_value": 108.05810581415001,
+      "selected_days": 33
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.55,
+      "min_entry_market_breadth": 0.45,
+      "max_entry_rank": 10,
+      "sell_prob_threshold": 0.5,
+      "max_hold_days": 2,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 7.532487776900499,
+    "summary": {
+      "total_return": 0.0805810581414994,
+      "sharpe": 1.4474012837171548,
+      "max_drawdown": -0.05393439925650345,
+      "active_days": 38,
+      "win_rate": 0.5,
+      "portfolio_value": 108.05810581415001,
+      "selected_days": 33
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.55,
+      "min_entry_market_breadth": 0.45,
+      "max_entry_rank": 10,
+      "sell_prob_threshold": 0.54,
+      "max_hold_days": 2,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 7.345420226351788,
+    "summary": {
+      "total_return": 0.07493654451304499,
+      "sharpe": 1.437395878332328,
+      "max_drawdown": -0.04608656084902407,
+      "active_days": 28,
+      "win_rate": 0.5714285714285714,
+      "portfolio_value": 107.49365445130448,
+      "selected_days": 25
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.55,
+      "min_entry_market_breadth": 0.55,
+      "max_entry_rank": 15,
+      "sell_prob_threshold": 0.5,
+      "max_hold_days": 3,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 7.162495867798661,
+    "summary": {
+      "total_return": 0.07531593110798696,
+      "sharpe": 1.4324790177493165,
+      "max_drawdown": -0.0503563153924802,
+      "active_days": 28,
+      "win_rate": 0.5714285714285714,
+      "portfolio_value": 107.5315931107988,
+      "selected_days": 26
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.55,
+      "min_entry_market_breadth": 0.55,
+      "max_entry_rank": 20,
+      "sell_prob_threshold": 0.5,
+      "max_hold_days": 3,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 7.098912925586006,
+    "summary": {
+      "total_return": 0.07886359656347275,
+      "sharpe": 1.1809109534920517,
+      "max_drawdown": -0.05117626321998692,
+      "active_days": 41,
+      "win_rate": 0.3902439024390244,
+      "portfolio_value": 107.88635965634728,
+      "selected_days": 39
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.4,
+      "min_entry_market_breadth": 0.45,
+      "max_entry_rank": 10,
+      "sell_prob_threshold": 0.54,
+      "max_hold_days": 5,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 6.932637473682865,
+    "summary": {
+      "total_return": 0.0734137134676962,
+      "sharpe": 1.4060545976915029,
+      "max_drawdown": -0.0503563153924802,
+      "active_days": 28,
+      "win_rate": 0.5714285714285714,
+      "portfolio_value": 107.34137134676968,
+      "selected_days": 25
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.55,
+      "min_entry_market_breadth": 0.55,
+      "max_entry_rank": 20,
+      "sell_prob_threshold": 0.54,
+      "max_hold_days": 3,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 6.869860651356384,
+    "summary": {
+      "total_return": 0.0794277021830665,
+      "sharpe": 1.0471906730382856,
+      "max_drawdown": -0.05287391153015386,
+      "active_days": 48,
+      "win_rate": 0.4791666666666667,
+      "portfolio_value": 107.94277021830669,
+      "selected_days": 47
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.5,
+      "min_entry_market_breadth": 0.4,
+      "max_entry_rank": 10,
+      "sell_prob_threshold": 0.5,
+      "max_hold_days": 2,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 6.869860651356384,
+    "summary": {
+      "total_return": 0.0794277021830665,
+      "sharpe": 1.0471906730382856,
+      "max_drawdown": -0.05287391153015386,
+      "active_days": 48,
+      "win_rate": 0.4791666666666667,
+      "portfolio_value": 107.94277021830669,
+      "selected_days": 47
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.5,
+      "min_entry_market_breadth": 0.4,
+      "max_entry_rank": 10,
+      "sell_prob_threshold": 0.54,
+      "max_hold_days": 2,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 6.783000464192777,
+    "summary": {
+      "total_return": 0.07605944674565301,
+      "sharpe": 1.321349131492136,
+      "max_drawdown": -0.05609935815221456,
+      "active_days": 49,
+      "win_rate": 0.4489795918367347,
+      "portfolio_value": 107.60594467456535,
+      "selected_days": 47
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.55,
+      "min_entry_market_breadth": 0.4,
+      "max_entry_rank": 10,
+      "sell_prob_threshold": 0.5,
+      "max_hold_days": 5,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 6.737074010061122,
+    "summary": {
+      "total_return": 0.08150744593537063,
+      "sharpe": 1.2042042017270738,
+      "max_drawdown": -0.064399537721331,
+      "active_days": 49,
+      "win_rate": 0.46938775510204084,
+      "portfolio_value": 108.15074459353707,
+      "selected_days": 48
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.4,
+      "min_entry_market_breadth": 0.4,
+      "max_entry_rank": 20,
+      "sell_prob_threshold": 0.54,
+      "max_hold_days": 5,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 6.580603623463574,
+    "summary": {
+      "total_return": 0.07263161060825851,
+      "sharpe": 1.1747637097011376,
+      "max_drawdown": -0.048894060038279674,
+      "active_days": 32,
+      "win_rate": 0.4375,
+      "portfolio_value": 107.26316106082584,
+      "selected_days": 31
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.4,
+      "min_entry_market_breadth": 0.5,
+      "max_entry_rank": 10,
+      "sell_prob_threshold": 0.54,
+      "max_hold_days": 5,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  },
+  {
+    "score": 6.381794148209705,
+    "summary": {
+      "total_return": 0.07704335361581349,
+      "sharpe": 1.2153414938075415,
+      "max_drawdown": -0.06291106908165911,
+      "active_days": 32,
+      "win_rate": 0.59375,
+      "portfolio_value": 107.7043353615814,
+      "selected_days": 30
+    },
+    "config": {
+      "min_avg_traded_value": 1000000,
+      "buy_prob_threshold": 0.45,
+      "min_entry_market_breadth": 0.5,
+      "max_entry_rank": 20,
+      "sell_prob_threshold": 0.5,
+      "max_hold_days": 3,
+      "max_entry_return_5d": 0.07,
+      "min_entry_return_5d": -0.03,
+      "min_entry_rsi": 45,
+      "max_entry_rsi": 72,
+      "min_entry_adx": 12,
+      "stop_loss_atr_mult": 1.0,
+      "take_profit_atr_mult": 4.0,
+      "market_breadth_exit": 0.25,
+      "max_positions": 3,
+      "risk_per_position": 0.01
+    }
+  }
+]

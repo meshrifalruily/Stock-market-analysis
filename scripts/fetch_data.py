@@ -1,11 +1,18 @@
 import yfinance as yf
 import pandas as pd
 import os
+import sys
 import numpy as np
 from datetime import datetime, timedelta
 from io import StringIO
 import ssl
 from urllib.request import Request, urlopen
+
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
+from scripts.company_names import get_arabic_company_name
 
 # قائمة احتياطية إذا تعذر جلب قائمة السوق الكاملة من الإنترنت
 FALLBACK_TASI_SYMBOLS = {
@@ -36,6 +43,29 @@ DATA_DIR = "data/raw"
 UNIVERSE_CACHE_PATH = "data/tasi_universe.csv"
 STOCK_UNIVERSE_URL = "https://stockanalysis.com/list/saudi-stock-exchange/"
 FETCH_FUNDAMENTALS = os.getenv("TASI_FETCH_FUNDAMENTALS", "0") == "1"
+TARGET_MARKET = os.getenv("TASI_TARGET_MARKET", "main").strip().lower()
+
+NOMU_PREFIXES = ("95", "96")
+
+def classify_market(symbol):
+    code = str(symbol).replace(".SR", "").strip()
+    if code.startswith(NOMU_PREFIXES):
+        return "نمو"
+    return "السوق الرئيسي"
+
+def filter_target_market(universe):
+    if TARGET_MARKET in {"all", "كل", "all_markets"}:
+        return universe
+
+    filtered = {
+        symbol: info
+        for symbol, info in universe.items()
+        if info.get("market", classify_market(symbol)) == "السوق الرئيسي"
+    }
+    removed = len(universe) - len(filtered)
+    if removed:
+        print(f"تم استبعاد {removed} رمزاً من نمو/الأسواق غير المستهدفة. الكون الحالي: {len(filtered)} رمز من السوق الرئيسي.")
+    return filtered
 
 def normalize_saudi_symbol(symbol):
     symbol = str(symbol).strip()
@@ -50,10 +80,13 @@ def load_symbol_universe():
     if os.path.exists(UNIVERSE_CACHE_PATH):
         cached = pd.read_csv(UNIVERSE_CACHE_PATH)
         if {'symbol', 'name', 'sector'}.issubset(cached.columns) and not cached.empty:
-            return {
-                row['symbol']: {'name': row['name'], 'sector': row['sector']}
+            if 'market' not in cached.columns:
+                cached['market'] = cached['symbol'].apply(classify_market)
+            universe = {
+                row['symbol']: {'name': row['name'], 'sector': row['sector'], 'market': row['market']}
                 for _, row in cached.iterrows()
             }
+            return filter_target_market(universe)
 
     try:
         try:
@@ -84,21 +117,26 @@ def load_symbol_universe():
                 continue
             universe[symbol] = {
                 'name': str(row['Company Name']).strip(),
-                'sector': 'غير مصنف'
+                'sector': 'غير مصنف',
+                'market': classify_market(symbol)
             }
 
         if universe:
             os.makedirs(os.path.dirname(UNIVERSE_CACHE_PATH), exist_ok=True)
             pd.DataFrame([
-                {'symbol': symbol, 'name': info['name'], 'sector': info['sector']}
+                {'symbol': symbol, 'name': info['name'], 'sector': info['sector'], 'market': info['market']}
                 for symbol, info in sorted(universe.items())
             ]).to_csv(UNIVERSE_CACHE_PATH, index=False)
             print(f"تم تحميل قائمة السوق الموسعة: {len(universe)} رمز.")
-            return universe
+            return filter_target_market(universe)
     except Exception as e:
         print(f"تعذر تحميل قائمة السوق الموسعة، سيتم استخدام القائمة الاحتياطية: {e}")
 
-    return FALLBACK_TASI_SYMBOLS
+    fallback = {
+        symbol: {**info, 'market': classify_market(symbol)}
+        for symbol, info in FALLBACK_TASI_SYMBOLS.items()
+    }
+    return filter_target_market(fallback)
 
 def apply_universe_limit(symbols):
     limit = os.getenv("TASI_MAX_SYMBOLS", "").strip()
@@ -146,7 +184,9 @@ def fetch_stock_data(symbol, info_dict, is_macro=False):
             df['Market_Cap'] = info.get('marketCap', np.nan)
             df['Symbol'] = symbol
             df['Company Name'] = name
+            df['Company Name Arabic'] = get_arabic_company_name(symbol, name)
             df['Sector'] = info.get('sector') or info_dict['sector']
+            df['Market'] = info_dict.get('market', classify_market(symbol))
             df['Sentiment'] = calculate_liquidity_sentiment(df)
             
         return df
