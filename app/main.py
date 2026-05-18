@@ -23,9 +23,12 @@ ROOT_DIR = os.path.dirname(BASE_DIR)
 MODEL_DAILY_PATH = os.path.join(ROOT_DIR, "models/tasi_rf_model_daily.joblib")
 MODEL_WEEKLY_PATH = os.path.join(ROOT_DIR, "models/tasi_rf_model_weekly.joblib")
 MODEL_MEDIUM_PATH = os.path.join(ROOT_DIR, "models/tasi_rf_model_medium.joblib")
+REGRESSION_NEXT_DAY_PATH = os.path.join(ROOT_DIR, "models/tasi_reg_model_next_day.joblib")
 DATA_PATH = os.path.join(ROOT_DIR, "data/tasi_processed.csv")
 FEATURES_PATH = os.path.join(ROOT_DIR, "models/feature_names.joblib")
 FEATURE_MEDIANS_PATH = os.path.join(ROOT_DIR, "models/feature_medians.joblib")
+REGRESSION_FEATURES_PATH = os.path.join(ROOT_DIR, "models/regression_feature_names.joblib")
+REGRESSION_FEATURE_MEDIANS_PATH = os.path.join(ROOT_DIR, "models/regression_feature_medians.joblib")
 BACKTEST_PATH = os.path.join(ROOT_DIR, "data/backtest_results.csv")
 PAPER_PORTFOLIO_PATH = os.path.join(ROOT_DIR, "data/paper_portfolio.json")
 
@@ -36,18 +39,27 @@ STRATEGY_CONFIG = load_strategy_config()
 CONFIDENCE_THRESHOLD_DAILY = 0.65
 CONFIDENCE_THRESHOLD_WEEKLY = STRATEGY_CONFIG["buy_prob_threshold"]
 CONFIDENCE_THRESHOLD_MEDIUM = 0.70
+MARKET_CLOSE_HOUR = int(os.getenv("TASI_MARKET_CLOSE_HOUR", "15"))
+MARKET_CLOSE_MINUTE = int(os.getenv("TASI_MARKET_CLOSE_MINUTE", "20"))
 
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 def load_system_assets():
     if not all(os.path.exists(p) for p in [MODEL_DAILY_PATH, MODEL_WEEKLY_PATH, DATA_PATH]):
-        return None, None, None, None, None, None
+        return None, None, None, None, None, None, None, None, None
     try:
         m_daily = joblib.load(MODEL_DAILY_PATH)
         m_weekly = joblib.load(MODEL_WEEKLY_PATH)
         m_medium = joblib.load(MODEL_MEDIUM_PATH) if os.path.exists(MODEL_MEDIUM_PATH) else None
+        m_regression = joblib.load(REGRESSION_NEXT_DAY_PATH) if os.path.exists(REGRESSION_NEXT_DAY_PATH) else None
         features = joblib.load(FEATURES_PATH)
         feature_medians = joblib.load(FEATURE_MEDIANS_PATH) if os.path.exists(FEATURE_MEDIANS_PATH) else None
+        regression_features = joblib.load(REGRESSION_FEATURES_PATH) if os.path.exists(REGRESSION_FEATURES_PATH) else None
+        regression_feature_medians = (
+            joblib.load(REGRESSION_FEATURE_MEDIANS_PATH)
+            if os.path.exists(REGRESSION_FEATURE_MEDIANS_PATH)
+            else None
+        )
         df = pd.read_csv(DATA_PATH)
         df['date'] = pd.to_datetime(df['date']).dt.tz_localize(None)
         df = filter_main_market(df)
@@ -58,8 +70,8 @@ def load_system_assets():
             ),
             axis=1
         )
-        return df, m_daily, m_weekly, m_medium, features, feature_medians
-    except: return None, None, None, None, None, None
+        return df, m_daily, m_weekly, m_medium, features, feature_medians, m_regression, regression_features, regression_feature_medians
+    except: return None, None, None, None, None, None, None, None, None
 
 def prepare_prediction_features(rows, features, medians):
     X = rows[features].replace([np.inf, -np.inf], np.nan)
@@ -75,14 +87,35 @@ def get_xai_reason(row):
     if row['relative_sector_alpha'] > 0: reasons.append("أداء أقوى من القطاع")
     return " + ".join(reasons[:2]) if reasons else "قوة نسبية متزايدة"
 
-def build_trade_setup(current_price, atr, p_daily, p_weekly, p_medium, is_liquid=True, return_5d=0, hybrid_rank=999, rsi=50, adx=0, above_sma20=False):
+def latest_completed_saudi_trading_day(now=None):
+    current = now or datetime.now()
+    trade_day = pd.Timestamp(current).normalize()
+    close_time = current.replace(hour=MARKET_CLOSE_HOUR, minute=MARKET_CLOSE_MINUTE, second=0, microsecond=0)
+    if current < close_time:
+        trade_day -= pd.Timedelta(days=1)
+
+    while trade_day.weekday() in (4, 5):  # Friday, Saturday
+        trade_day -= pd.Timedelta(days=1)
+    return trade_day
+
+def get_prediction_base_date(df):
+    completed_day = latest_completed_saudi_trading_day()
+    dates = sorted(pd.Timestamp(date_value) for date_value in df['date'].dropna().unique())
+    if not dates:
+        return None
+    eligible_dates = [date_value for date_value in dates if date_value <= completed_day]
+    if eligible_dates:
+        return eligible_dates[-1]
+    return dates[0]
+
+def build_trade_setup(current_price, atr, p_daily, p_weekly, p_medium, is_liquid=True, return_5d=0, hybrid_rank=999, rsi=50, adx=0, above_sma20=False, predicted_next_close=None):
     valid_price = current_price > 0
     valid_atr = atr > 0 and valid_price
     atr_risk = atr if valid_atr else current_price * 0.02
     stop_distance = STRATEGY_CONFIG["stop_loss_atr_mult"] * atr_risk
     target_distance = STRATEGY_CONFIG["take_profit_atr_mult"] * stop_distance
 
-    daily_target = current_price + max(current_price * 0.01, stop_distance) if valid_price and p_daily > CONFIDENCE_THRESHOLD_DAILY else None
+    daily_target = predicted_next_close if valid_price and predicted_next_close and predicted_next_close > 0 else None
     weekly_target = current_price + max(current_price * 0.03, target_distance) if valid_price and p_weekly > CONFIDENCE_THRESHOLD_WEEKLY else None
     medium_target = current_price + max(current_price * 0.06, target_distance * 1.5) if valid_price and p_medium and p_medium > CONFIDENCE_THRESHOLD_MEDIUM else None
 
@@ -132,18 +165,20 @@ def build_trade_setup(current_price, atr, p_daily, p_weekly, p_medium, is_liquid
     }
 
 def get_market_intelligence():
-    df, m_daily, m_weekly, m_medium, features, feature_medians = load_system_assets()
+    df, m_daily, m_weekly, m_medium, features, feature_medians, m_regression, regression_features, regression_feature_medians = load_system_assets()
     if df is None: return []
 
     latest_data = []
+    prediction_date = get_prediction_base_date(df)
+    if prediction_date is None:
+        return []
     
     # جلب حالة السوق العامة
-    current_date_max = df['date'].max()
-    market_row = df[df['date'] == current_date_max]
+    market_row = df[df['date'] == prediction_date]
     market_breadth = market_row['market_breadth_sma50'].iloc[0] if 'market_breadth_sma50' in market_row.columns else 0.5
     
-    # 1. استخراج أحدث صف لكل سهم دفعة واحدة
-    latest_rows = df.sort_values('date').groupby(['symbol', 'اسم الشركة']).tail(1).copy()
+    # 1. استخراج صف آخر إغلاق مكتمل لكل سهم دفعة واحدة
+    latest_rows = df[df['date'] <= prediction_date].sort_values('date').groupby(['symbol', 'اسم الشركة']).tail(1).copy()
     
     # 2. تجهيز الميزات للجميع مرة واحدة
     X_all = prepare_prediction_features(latest_rows, features, feature_medians)
@@ -152,6 +187,17 @@ def get_market_intelligence():
     latest_rows['p_daily'] = m_daily.predict_proba(X_all)[:, 1]
     latest_rows['p_weekly'] = m_weekly.predict_proba(X_all)[:, 1]
     latest_rows['p_medium'] = m_medium.predict_proba(X_all)[:, 1] if m_medium else 0.5
+    if m_regression is not None and regression_features:
+        X_regression = prepare_prediction_features(latest_rows, regression_features, regression_feature_medians)
+        latest_rows['predicted_next_return'] = np.clip(m_regression.predict(X_regression), -0.2, 0.2)
+        latest_rows['predicted_next_close'] = np.maximum(
+            latest_rows['close'].replace(0, np.nan) * (1 + latest_rows['predicted_next_return']),
+            0.01
+        )
+        latest_rows['p_daily'] = (0.5 + latest_rows['predicted_next_return'].fillna(0) * 10).clip(0, 1)
+    else:
+        latest_rows['predicted_next_close'] = np.nan
+        latest_rows['predicted_next_return'] = np.nan
     latest_rows['prob_win'] = latest_rows['p_weekly']
     latest_rows = add_hybrid_scores(latest_rows)
     latest_rows['hybrid_rank'] = latest_rows['rank']
@@ -165,6 +211,16 @@ def get_market_intelligence():
         
         # حماية ضد القيم المفقودة
         current_price = float(row['close']) if not pd.isna(row['close']) else 0
+        predicted_next_close = (
+            float(row['predicted_next_close'])
+            if 'predicted_next_close' in latest_rows.columns and not pd.isna(row['predicted_next_close'])
+            else None
+        )
+        predicted_next_return = (
+            float(row['predicted_next_return'])
+            if 'predicted_next_return' in latest_rows.columns and not pd.isna(row['predicted_next_return'])
+            else None
+        )
         atr = float(row['atr']) if 'atr' in latest_rows.columns and not pd.isna(row['atr']) else 0
         sentiment_val = float(row['sentiment']) if 'sentiment' in latest_rows.columns and not pd.isna(row['sentiment']) else 0.5
         ret_5d = float(row['return_5d']) if 'return_5d' in latest_rows.columns else 0
@@ -181,7 +237,8 @@ def get_market_intelligence():
             hybrid_rank=float(row['hybrid_rank']),
             rsi=float(row['rsi']) if 'rsi' in latest_rows.columns and not pd.isna(row['rsi']) else 50,
             adx=float(row['tv_adx']) if 'tv_adx' in latest_rows.columns and not pd.isna(row['tv_adx']) else 0,
-            above_sma20=bool(row['close'] > row['sma_20']) if 'sma_20' in latest_rows.columns else False
+            above_sma20=bool(row['close'] > row['sma_20']) if 'sma_20' in latest_rows.columns else False,
+            predicted_next_close=predicted_next_close
         )
         
         # تعديل الحالة بناءً على وضع السوق
@@ -208,9 +265,11 @@ def get_market_intelligence():
             'market': row['market'] if 'market' in latest_rows.columns else "السوق الرئيسي",
             'reason': get_xai_reason(row),
             'entry_status': rejection_reason,
+            'prediction_date': prediction_date.strftime("%Y-%m-%d"),
             'current_price': round(current_price, 2),
             'sentiment': round(sentiment_val * 100, 1),
-            'predicted_daily': round(p_daily * 100, 1), # ثقة اليومي
+            'predicted_daily': round((predicted_next_return or 0) * 100, 2), # العائد المتوقع للغد
+            'predicted_next_close': round(predicted_next_close, 2) if predicted_next_close is not None else None,
             'predicted_weekly': round(p_weekly * 100, 1), # ثقة الأسبوعي
             'predicted_medium': round(p_medium * 100, 1), # ثقة أسبوعين
             'entry': round(current_price, 2),
@@ -236,9 +295,88 @@ def get_market_intelligence():
         reverse=True
     )
 
+def get_market_prices(mode="previous_close"):
+    df, _, _, _, _, _, _, _, _ = load_system_assets()
+    if df is None or df.empty:
+        return None, [], {}
+
+    available_dates = sorted(df['date'].dropna().unique())
+    if not available_dates:
+        return None, [], {}
+
+    if mode == "current":
+        selected_date = available_dates[-1]
+    else:
+        selected_date = get_prediction_base_date(df)
+
+    selected_date = pd.Timestamp(selected_date)
+    latest_rows = df[df['date'] == selected_date].copy()
+    if latest_rows.empty:
+        return None, [], {}
+
+    latest_rows['اسم الشركة'] = latest_rows.apply(
+        lambda row: get_arabic_company_name(
+            row['symbol'],
+            row.get('company name arabic') or row.get('company name', "")
+        ),
+        axis=1
+    )
+
+    if 'traded_value' not in latest_rows.columns:
+        latest_rows['traded_value'] = latest_rows['close'] * latest_rows['volume']
+
+    closes = []
+    for _, row in latest_rows.sort_values('symbol').iterrows():
+        daily_return = float(row['daily_return']) if 'daily_return' in latest_rows.columns and not pd.isna(row['daily_return']) else 0.0
+        volume = float(row['volume']) if 'volume' in latest_rows.columns and not pd.isna(row['volume']) else 0.0
+        traded_value = float(row['traded_value']) if not pd.isna(row.get('traded_value', np.nan)) else 0.0
+        close = float(row['close']) if not pd.isna(row['close']) else 0.0
+        open_price = float(row['open']) if 'open' in latest_rows.columns and not pd.isna(row['open']) else close
+        high = float(row['high']) if 'high' in latest_rows.columns and not pd.isna(row['high']) else close
+        low = float(row['low']) if 'low' in latest_rows.columns and not pd.isna(row['low']) else close
+
+        closes.append({
+            "symbol": row['symbol'],
+            "company_name": row['اسم الشركة'],
+            "sector": row['sector'] if 'sector' in latest_rows.columns else "عام",
+            "market": row['market'] if 'market' in latest_rows.columns else MARKET_SCOPE_LABEL,
+            "open": round(open_price, 2),
+            "high": round(high, 2),
+            "low": round(low, 2),
+            "close": round(close, 2),
+            "daily_return": round(daily_return * 100, 2),
+            "volume": volume,
+            "traded_value": traded_value,
+        })
+
+    positive_count = sum(1 for item in closes if item["daily_return"] > 0)
+    negative_count = sum(1 for item in closes if item["daily_return"] < 0)
+    unchanged_count = len(closes) - positive_count - negative_count
+    total_traded_value = sum(item["traded_value"] for item in closes)
+    best = max(closes, key=lambda item: item["daily_return"], default=None)
+    worst = min(closes, key=lambda item: item["daily_return"], default=None)
+
+    summary = {
+        "date": selected_date.strftime("%Y-%m-%d"),
+        "count": len(closes),
+        "positive_count": positive_count,
+        "negative_count": negative_count,
+        "unchanged_count": unchanged_count,
+        "total_traded_value": total_traded_value,
+        "best": best,
+        "worst": worst,
+    }
+    return selected_date, closes, summary
+
+def get_market_closes():
+    return get_market_prices(mode="previous_close")
+
+def get_current_market_prices():
+    return get_market_prices(mode="current")
+
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
-    df, _, _, _, _, _ = load_system_assets()
+    df, _, _, _, _, _, _, _, _ = load_system_assets()
     intelligence = get_market_intelligence()
     
     # تحليلات إضافية للواجهة
@@ -258,9 +396,10 @@ async def read_root(request: Request):
         backtest = {'return': round(float(bt_df['value'].iloc[-1] - 100.0), 2)}
 
     market_breadth = intelligence[0]['market_breadth'] if intelligence else 0.5
+    prediction_date = intelligence[0].get('prediction_date') if intelligence else data_date
     paper_portfolio = sync_portfolio_with_recommendations(
         intelligence,
-        data_date,
+        prediction_date,
         STRATEGY_CONFIG,
         path=PAPER_PORTFOLIO_PATH,
         initial_capital=1000.0,
@@ -277,7 +416,52 @@ async def read_root(request: Request):
             "market_scope": MARKET_SCOPE_LABEL,
             "strategy_config": STRATEGY_CONFIG,
             "paper_portfolio": paper_portfolio,
+            "prediction_date": prediction_date,
             "last_update": datetime.now().strftime("%H:%M")
+        }
+    )
+
+@app.get("/market-closes", response_class=HTMLResponse)
+async def market_closes(request: Request):
+    _, closes, summary = get_market_closes()
+    if not summary:
+        return JSONResponse(status_code=404, content={"message": "بيانات الإغلاقات غير متاحة حالياً"})
+
+    return templates.TemplateResponse(
+        request=request, name="market_closes.html",
+        context={
+            "request": request,
+            "closes": closes,
+            "summary": summary,
+            "page_title": "إغلاقات السوق",
+            "page_subtitle": "إغلاقات اليوم السابق المتاح",
+            "table_title": "جدول إغلاقات الجلسة السابقة",
+            "table_description": "يعرض أسعار الافتتاح، الأعلى، الأدنى، الإغلاق، التغير، والحجم لآخر جلسة مكتملة قبل بيانات اليوم الحالية.",
+            "search_placeholder": "بحث باسم الشركة أو الرمز",
+            "market_scope": MARKET_SCOPE_LABEL,
+            "last_update": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        }
+    )
+
+@app.get("/current-prices", response_class=HTMLResponse)
+async def current_prices(request: Request):
+    _, prices, summary = get_current_market_prices()
+    if not summary:
+        return JSONResponse(status_code=404, content={"message": "بيانات الأسعار الحالية غير متاحة حالياً"})
+
+    return templates.TemplateResponse(
+        request=request, name="market_closes.html",
+        context={
+            "request": request,
+            "closes": prices,
+            "summary": summary,
+            "page_title": "الأسعار الحالية",
+            "page_subtitle": "آخر أسعار متاحة أثناء جلسة السوق",
+            "table_title": "جدول الأسعار الحالية",
+            "table_description": "يعرض آخر أسعار متاحة من ملف البيانات الحالي أثناء عمل السوق، وقد تختلف عن إغلاقات الجلسة السابقة.",
+            "search_placeholder": "بحث باسم الشركة أو الرمز",
+            "market_scope": MARKET_SCOPE_LABEL,
+            "last_update": datetime.now().strftime("%Y-%m-%d %H:%M"),
         }
     )
 

@@ -44,6 +44,9 @@ UNIVERSE_CACHE_PATH = "data/tasi_universe.csv"
 STOCK_UNIVERSE_URL = "https://stockanalysis.com/list/saudi-stock-exchange/"
 FETCH_FUNDAMENTALS = os.getenv("TASI_FETCH_FUNDAMENTALS", "0") == "1"
 TARGET_MARKET = os.getenv("TASI_TARGET_MARKET", "main").strip().lower()
+REFRESH_LATEST_PRICE = os.getenv("TASI_REFRESH_LATEST_PRICE", "1") == "1"
+MARKET_CLOSE_HOUR = int(os.getenv("TASI_MARKET_CLOSE_HOUR", "15"))
+MARKET_CLOSE_MINUTE = int(os.getenv("TASI_MARKET_CLOSE_MINUTE", "20"))
 
 NOMU_PREFIXES = ("95", "96")
 
@@ -159,6 +162,158 @@ def calculate_liquidity_sentiment(df):
     raw_score = 0.5 + (ret_5d * 3.0) + ((vol_ratio - 1.0) * 0.12)
     return raw_score.clip(0.05, 0.95)
 
+def latest_completed_saudi_trading_day(now=None):
+    current = now or datetime.now()
+    trade_day = pd.Timestamp(current).normalize()
+    close_time = current.replace(hour=MARKET_CLOSE_HOUR, minute=MARKET_CLOSE_MINUTE, second=0, microsecond=0)
+    if current < close_time:
+        trade_day -= pd.Timedelta(days=1)
+
+    while trade_day.weekday() in (4, 5):  # Friday, Saturday
+        trade_day -= pd.Timedelta(days=1)
+    return trade_day
+
+def _scalar(value, default=np.nan):
+    if value is None:
+        return default
+    try:
+        if isinstance(value, pd.Series):
+            value = value.dropna().iloc[-1] if not value.dropna().empty else default
+        if isinstance(value, (list, tuple, np.ndarray)):
+            value = value[-1] if len(value) else default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+def _latest_intraday_snapshot(ticker):
+    try:
+        intraday = ticker.history(period="5d", interval="1m", auto_adjust=False, prepost=False)
+    except Exception:
+        return None
+
+    if intraday is None or intraday.empty or 'Close' not in intraday.columns:
+        return None
+    if isinstance(intraday.columns, pd.MultiIndex):
+        intraday.columns = intraday.columns.get_level_values(0)
+    if intraday.index.tz is not None:
+        intraday.index = intraday.index.tz_convert(None)
+
+    close = intraday['Close'].dropna()
+    if close.empty:
+        return None
+
+    latest_ts = close.index[-1]
+    latest_date = pd.Timestamp(latest_ts).normalize()
+    day_rows = intraday[intraday.index.normalize() == latest_date].copy()
+    if day_rows.empty:
+        day_rows = intraday.tail(1).copy()
+
+    price = _scalar(day_rows['Close'].dropna().iloc[-1] if 'Close' in day_rows else np.nan)
+    if not np.isfinite(price) or price <= 0:
+        return None
+
+    return {
+        "date": latest_date,
+        "close": price,
+        "open": _scalar(day_rows['Open'].dropna().iloc[0] if 'Open' in day_rows and not day_rows['Open'].dropna().empty else price, price),
+        "high": _scalar(day_rows['High'].max() if 'High' in day_rows else price, price),
+        "low": _scalar(day_rows['Low'].min() if 'Low' in day_rows else price, price),
+        "volume": _scalar(day_rows['Volume'].sum() if 'Volume' in day_rows else 0, 0),
+    }
+
+def _latest_fast_info_snapshot(ticker, quote_date=None):
+    try:
+        fast_info = ticker.fast_info
+    except Exception:
+        fast_info = {}
+
+    price = _scalar(
+        getattr(fast_info, "last_price", None)
+        or (fast_info.get("last_price") if hasattr(fast_info, "get") else None)
+        or (fast_info.get("lastPrice") if hasattr(fast_info, "get") else None)
+    )
+    if not np.isfinite(price) or price <= 0:
+        return None
+
+    return {
+        "date": pd.Timestamp(quote_date if quote_date is not None else datetime.now()).normalize(),
+        "close": price,
+        "open": _scalar(
+            getattr(fast_info, "open", None)
+            or (fast_info.get("open") if hasattr(fast_info, "get") else None),
+            price
+        ),
+        "high": _scalar(
+            getattr(fast_info, "day_high", None)
+            or (fast_info.get("day_high") if hasattr(fast_info, "get") else None)
+            or (fast_info.get("dayHigh") if hasattr(fast_info, "get") else None),
+            price
+        ),
+        "low": _scalar(
+            getattr(fast_info, "day_low", None)
+            or (fast_info.get("day_low") if hasattr(fast_info, "get") else None)
+            or (fast_info.get("dayLow") if hasattr(fast_info, "get") else None),
+            price
+        ),
+        "volume": _scalar(
+            getattr(fast_info, "last_volume", None)
+            or (fast_info.get("last_volume") if hasattr(fast_info, "get") else None)
+            or (fast_info.get("lastVolume") if hasattr(fast_info, "get") else None),
+            0
+        ),
+    }
+
+def apply_latest_price_snapshot(df, ticker, symbol):
+    if not REFRESH_LATEST_PRICE or df.empty:
+        return df
+
+    df = df.copy()
+    if df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
+    df.index = pd.to_datetime(df.index).normalize()
+    if 'Close' in df.columns:
+        df = df[df['Close'].notna()].copy()
+    if df.empty:
+        return df
+
+    latest_data_date = df.index.max()
+    completed_trade_day = max(latest_data_date, latest_completed_saudi_trading_day())
+    snapshot = _latest_fast_info_snapshot(ticker, completed_trade_day) or _latest_intraday_snapshot(ticker)
+    if not snapshot:
+        return df
+
+    quote_date = snapshot["date"]
+    current_close = _scalar(snapshot["close"])
+    previous_close = _scalar(df['Close'].dropna().iloc[-1])
+
+    if quote_date < latest_data_date or not np.isfinite(current_close) or current_close <= 0:
+        return df
+
+    if quote_date in df.index:
+        idx = quote_date
+        df.loc[idx, 'Close'] = current_close
+        if 'Adj Close' in df.columns:
+            df.loc[idx, 'Adj Close'] = current_close
+        df.loc[idx, 'High'] = max(_scalar(df.loc[idx, 'High'], current_close), snapshot["high"], current_close)
+        df.loc[idx, 'Low'] = min(_scalar(df.loc[idx, 'Low'], current_close), snapshot["low"], current_close)
+        df.loc[idx, 'Open'] = _scalar(df.loc[idx, 'Open'], snapshot["open"])
+        df.loc[idx, 'Volume'] = max(_scalar(df.loc[idx, 'Volume'], 0), snapshot["volume"])
+    else:
+        new_row = df.loc[latest_data_date].copy()
+        new_row['Open'] = snapshot["open"] if np.isfinite(snapshot["open"]) else previous_close
+        new_row['High'] = max(snapshot["high"], current_close, new_row['Open'])
+        new_row['Low'] = min(snapshot["low"], current_close, new_row['Open'])
+        new_row['Close'] = current_close
+        if 'Adj Close' in df.columns:
+            new_row['Adj Close'] = current_close
+        new_row['Volume'] = snapshot["volume"]
+        df.loc[quote_date] = new_row
+        df = df.sort_index()
+
+    if not np.isclose(previous_close, current_close, rtol=0, atol=0.0001):
+        print(f"تم تحديث آخر سعر لـ {symbol}: {previous_close:.2f} -> {current_close:.2f} بتاريخ {quote_date.date()}")
+    return df
+
 def fetch_stock_data(symbol, info_dict, is_macro=False):
     today = datetime.now()
     tomorrow = today + timedelta(days=1)
@@ -168,16 +323,17 @@ def fetch_stock_data(symbol, info_dict, is_macro=False):
     print(f"جاري سحب بيانات {name} ({symbol})...")
     
     try:
+        ticker = yf.Ticker(symbol)
         df = yf.download(symbol, start=start_date.strftime('%Y-%m-%d'), end=tomorrow.strftime('%Y-%m-%d'), interval="1d", progress=False, auto_adjust=False)
         
         if df.empty: return None
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
         if df.index.tz is not None: df.index = df.index.tz_localize(None)
+        df = apply_latest_price_snapshot(df, ticker, symbol)
 
         if not is_macro:
             info = {}
             if FETCH_FUNDAMENTALS:
-                ticker = yf.Ticker(symbol)
                 info = ticker.info
             df['PE_Ratio'] = info.get('trailingPE', np.nan)
             df['Div_Yield'] = info.get('dividendYield', 0.0)

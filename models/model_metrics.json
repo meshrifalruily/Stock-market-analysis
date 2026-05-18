@@ -1,33 +1,62 @@
 {
+  "next_day_price_regression": {
+    "selected_model": "random_forest_regressor",
+    "validation": {
+      "random_forest_regressor": {
+        "mae": 0.6132001731962055,
+        "rmse": 1.6427373781321084,
+        "mape": 1.4249985563582102,
+        "r2": 0.9993126014909448,
+        "direction_accuracy": 0.5369210202102284,
+        "score": 0.46064186722425127
+      },
+      "extra_trees_regressor": {
+        "mae": 0.6177238067955372,
+        "rmse": 1.6244477201649021,
+        "mape": 1.442105843403285,
+        "r2": 0.9993278227869362,
+        "direction_accuracy": 0.5154787805709193,
+        "score": 0.4132337543463015
+      },
+      "hist_gradient_boosting_regressor": {
+        "mae": 0.6085504983477302,
+        "rmse": 1.6052633798751903,
+        "mape": 1.4185503699869741,
+        "r2": 0.9993436055433296,
+        "direction_accuracy": 0.5229232745288211,
+        "score": 0.43729605070991207
+      }
+    }
+  },
   "daily": {
     "selected_model": "random_forest",
     "validation": {
       "random_forest": {
-        "accuracy": 0.5496277582175397,
-        "f1": 0.38943341227910366,
-        "auc": 0.5305097977881563,
+        "accuracy": 0.5528540940648891,
+        "f1": 0.39043971422258233,
+        "auc": 0.5301884734318045,
         "strategy_avg_return": 0.0,
         "strategy_total_return": 0.0,
         "selected_days": 0,
-        "score": 5.305097977881563
+        "score": 5.301884734318046
       },
       "extra_trees": {
-        "accuracy": 0.5533636143736393,
-        "f1": 0.40424464042446406,
-        "auc": 0.53038294322576,
+        "accuracy": 0.5564200232325688,
+        "f1": 0.393782766004578,
+        "auc": 0.530049000328957,
         "strategy_avg_return": 0.0,
         "strategy_total_return": 0.0,
         "selected_days": 0,
-        "score": 5.3038294322576
+        "score": 5.300490003289569
       },
       "hist_gradient_boosting": {
-        "accuracy": 0.5477732684709866,
-        "f1": 0.38148801646816644,
-        "auc": 0.5250083801017266,
+        "accuracy": 0.5568792716859822,
+        "f1": 0.3833690462764558,
+        "auc": 0.5236339824519187,
         "strategy_avg_return": 0.0,
         "strategy_total_return": 0.0,
         "selected_days": 0,
-        "score": 5.250083801017266
+        "score": 5.236339824519187
       }
     }
   },
@@ -35,31 +64,31 @@
     "selected_model": "random_forest",
     "validation": {
       "random_forest": {
-        "accuracy": 0.7088423502036068,
-        "f1": 0.26431482595042427,
-        "auc": 0.5880862709656117,
+        "accuracy": 0.7145573129835494,
+        "f1": 0.26120831055221433,
+        "auc": 0.5854265639410638,
         "strategy_avg_return": 0.0,
         "strategy_total_return": 0.0,
         "selected_days": 0,
-        "score": 5.8808627096561175
+        "score": 5.854265639410638
       },
       "extra_trees": {
-        "accuracy": 0.6544767042149241,
-        "f1": 0.29424790710234944,
-        "auc": 0.5835798352882823,
+        "accuracy": 0.6560428824166249,
+        "f1": 0.290831881533101,
+        "auc": 0.5808365356153433,
         "strategy_avg_return": 0.0,
         "strategy_total_return": 0.0,
         "selected_days": 0,
-        "score": 5.835798352882823
+        "score": 5.808365356153433
       },
       "hist_gradient_boosting": {
-        "accuracy": 0.6906763974826802,
-        "f1": 0.24955093661791122,
-        "auc": 0.5544789604376772,
+        "accuracy": 0.6992949750468697,
+        "f1": 0.24791969356756044,
+        "auc": 0.5487636106217095,
         "strategy_avg_return": 0.0,
         "strategy_total_return": 0.0,
         "selected_days": 0,
-        "score": 5.544789604376772
+        "score": 5.487636106217096
       }
     }
   },
@@ -67,31 +96,31 @@
     "selected_model": "random_forest",
     "validation": {
       "random_forest": {
-        "accuracy": 0.6969925014110248,
-        "f1": 0.29129997485541864,
-        "auc": 0.5863387985327089,
+        "accuracy": 0.6968690061323176,
+        "f1": 0.28732931089234676,
+        "auc": 0.5825056629217354,
         "strategy_avg_return": 0.0,
         "strategy_total_return": 0.0,
         "selected_days": 0,
-        "score": 5.863387985327089
+        "score": 5.825056629217355
       },
       "extra_trees": {
-        "accuracy": 0.63576746311178,
-        "f1": 0.3136837840575306,
-        "auc": 0.5842635062273596,
+        "accuracy": 0.6324391495799228,
+        "f1": 0.30962045869697585,
+        "auc": 0.5795545266035937,
         "strategy_avg_return": 0.0,
         "strategy_total_return": 0.0,
         "selected_days": 0,
-        "score": 5.842635062273596
+        "score": 5.795545266035937
       },
       "hist_gradient_boosting": {
-        "accuracy": 0.6471362915580402,
-        "f1": 0.2822937735745914,
-        "auc": 0.5592104591986842,
+        "accuracy": 0.645217062430775,
+        "f1": 0.2845780901018685,
+        "auc": 0.5582004444777179,
         "strategy_avg_return": 0.0,
         "strategy_total_return": 0.0,
         "selected_days": 0,
-        "score": 5.592104591986842
+        "score": 5.582004444777179
       }
     }
   }

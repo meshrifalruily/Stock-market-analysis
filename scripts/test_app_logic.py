@@ -2,10 +2,10 @@ import pandas as pd
 import joblib
 import os
 
-MODEL_PATH = "models/tasi_rf_model_daily.joblib"
+MODEL_PATH = "models/tasi_reg_model_next_day.joblib"
 DATA_PATH = "data/tasi_processed.csv"
-FEATURES_PATH = "models/feature_names.joblib"
-FEATURE_MEDIANS_PATH = "models/feature_medians.joblib"
+FEATURES_PATH = "models/regression_feature_names.joblib"
+FEATURE_MEDIANS_PATH = "models/regression_feature_medians.joblib"
 
 def test():
     if not os.path.exists(DATA_PATH):
@@ -31,7 +31,10 @@ def test():
         X = X.fillna(0)
         print(f"X shape: {X.shape}")
         preds = model.predict(X)
-        print(f"Prediction: {preds}")
+        current_price = latest_row['close'].iloc[0]
+        expected_return = max(min(preds[0], 0.2), -0.2)
+        next_close = current_price * (1 + expected_return)
+        print(f"Next close prediction: {next_close:.2f} | expected return: {expected_return:.2%}")
 
 if __name__ == "__main__":
     test()

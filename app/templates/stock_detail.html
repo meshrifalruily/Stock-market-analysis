@@ -191,8 +191,14 @@
         <div class="card">
             <h3>توقعات الذكاء الاصطناعي</h3>
             <div class="metric-row">
-                <span class="metric-label">احتمالية التفوق اليومي</span>
-                <span class="metric-value ai-score" style="color: {{ 'var(--accent-green)' if stock.predicted_daily >= 55 else 'var(--accent-red)' }}">
+                <span class="metric-label">سعر الغد المتوقع</span>
+                <span class="metric-value ai-score" style="color: {{ 'var(--accent-green)' if stock.predicted_daily >= 0 else 'var(--accent-red)' }}">
+                    {{ stock.predicted_next_close if stock.predicted_next_close else "---" }} ر.س
+                </span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">عائد الغد المتوقع</span>
+                <span class="metric-value ai-score" style="color: {{ 'var(--accent-green)' if stock.predicted_daily >= 0 else 'var(--accent-red)' }}">
                     {{ stock.predicted_daily }}%
                 </span>
             </div>

@@ -1,8 +1,15 @@
 import pandas as pd
 import numpy as np
 from sklearn.base import clone
-from sklearn.ensemble import ExtraTreesClassifier, HistGradientBoostingClassifier, RandomForestClassifier
-from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
+from sklearn.ensemble import (
+    ExtraTreesClassifier,
+    ExtraTreesRegressor,
+    HistGradientBoostingClassifier,
+    HistGradientBoostingRegressor,
+    RandomForestClassifier,
+    RandomForestRegressor,
+)
+from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error, r2_score, roc_auc_score
 import joblib
 import os
 import json
@@ -17,6 +24,7 @@ from scripts.strategy_rules import add_hybrid_scores, entry_candidates, filter_m
 
 MODEL_DIR = "models"
 NOMU_PREFIXES = ("95", "96")
+PRICE_LAG_DAYS = 10
 
 def is_main_market_symbol(symbol):
     code = str(symbol).replace(".SR", "").strip()
@@ -32,6 +40,19 @@ def get_candidate_models():
         ),
         "hist_gradient_boosting": HistGradientBoostingClassifier(
             max_iter=400, learning_rate=0.02, max_leaf_nodes=127, l2_regularization=1.5, random_state=42, class_weight='balanced'
+        ),
+    }
+
+def get_candidate_regressors():
+    return {
+        "random_forest_regressor": RandomForestRegressor(
+            n_estimators=300, max_depth=14, min_samples_leaf=10, random_state=42, n_jobs=-1
+        ),
+        "extra_trees_regressor": ExtraTreesRegressor(
+            n_estimators=300, max_depth=14, min_samples_leaf=10, random_state=42, n_jobs=-1
+        ),
+        "hist_gradient_boosting_regressor": HistGradientBoostingRegressor(
+            max_iter=400, learning_rate=0.03, max_leaf_nodes=63, l2_regularization=1.0, random_state=42
         ),
     }
 
@@ -98,6 +119,29 @@ def evaluate_model(model, val_df, X_val, y_val, config):
     metrics["score"] = (metrics["strategy_total_return"] * 100) + (metrics["auc"] * 10)
     return metrics
 
+def evaluate_regressor(model, val_df, X_val, y_val):
+    predicted_returns = np.clip(model.predict(X_val), -0.2, 0.2)
+    current_prices = val_df['close'].replace(0, np.nan)
+    actual_close = val_df['target_next_day_close']
+    preds = np.maximum(current_prices * (1 + predicted_returns), 0.01)
+    actual_returns = y_val
+    direction_actual = actual_returns > 0
+    direction_predicted = predicted_returns > 0
+
+    mae = mean_absolute_error(actual_close, preds)
+    rmse = float(np.sqrt(mean_squared_error(actual_close, preds)))
+    mape = float(np.mean(np.abs((actual_close - preds) / actual_close.replace(0, np.nan))) * 100)
+    direction_accuracy = float((direction_actual == direction_predicted).mean())
+
+    return {
+        "mae": float(mae),
+        "rmse": rmse,
+        "mape": mape,
+        "r2": float(r2_score(actual_close, preds)),
+        "direction_accuracy": direction_accuracy,
+        "score": float((-mae) + (direction_accuracy * 2)),
+    }
+
 def train_tasi_models(processed_file_path):
     if not os.path.exists(processed_file_path):
         print(f"خطأ: {processed_file_path} غير موجود.")
@@ -137,11 +181,26 @@ def train_tasi_models(processed_file_path):
             df[col] = df[col].fillna(df[col].median())
     
     features = [f for f in features if f in df.columns]
+    price_regression_features = features + [
+        col for col in (
+            [f'close_lag_{lag}' for lag in range(1, PRICE_LAG_DAYS + 1)] +
+            [f'volume_lag_{lag}' for lag in range(1, PRICE_LAG_DAYS + 1)] +
+            [f'return_lag_{lag}' for lag in range(1, PRICE_LAG_DAYS + 1)] +
+            ['close_mean_10d', 'close_std_10d', 'volume_mean_10d', 'return_sum_10d', 'close']
+        )
+        if col in df.columns and col not in features
+    ]
     if not os.path.exists(MODEL_DIR):
         os.makedirs(MODEL_DIR)
 
     model_metrics = {}
     feature_medians = df[features].replace([np.inf, -np.inf], np.nan).median(numeric_only=True).fillna(0)
+    regression_feature_medians = (
+        df[price_regression_features]
+        .replace([np.inf, -np.inf], np.nan)
+        .median(numeric_only=True)
+        .fillna(0)
+    )
 
     def train_one_target(target, output_path):
         # تحديد عمود العائد الحقيقي المرتبط بالهدف
@@ -187,6 +246,48 @@ def train_tasi_models(processed_file_path):
         final_model.fit(X_all, y_all)
         joblib.dump(final_model, output_path)
         return {"selected_model": best_name, "validation": results}
+
+    def train_price_regression_target(target, output_path):
+        target_df = df.dropna(subset=[target, 'target_next_day_close']).sort_values('date').copy()
+        train_df, val_df = chronological_split(target_df)
+
+        if train_df.empty or val_df.empty:
+            print(f"بيانات ناقصة لـ {target}")
+            return None
+
+        _, X_train, y_train, medians = prepare_frame(train_df, price_regression_features, target)
+        val_clean, X_val, y_val, _ = prepare_frame(val_df, price_regression_features, target, medians)
+
+        candidates = get_candidate_regressors()
+        results = {}
+        best_name = None
+        best_score = -np.inf
+
+        for name, candidate in candidates.items():
+            model = clone(candidate)
+            model.fit(X_train, y_train)
+            metrics = evaluate_regressor(model, val_clean, X_val, y_val)
+            results[name] = metrics
+            print(
+                f"{target} | {name}: MAE={metrics['mae']:.4f}, RMSE={metrics['rmse']:.4f}, "
+                f"MAPE={metrics['mape']:.2f}%, Direction={metrics['direction_accuracy']:.2%}"
+            )
+
+            if metrics["score"] > best_score:
+                best_name = name
+                best_score = metrics["score"]
+
+        final_model = clone(candidates[best_name])
+        _, X_all, y_all, _ = prepare_frame(target_df, price_regression_features, target, regression_feature_medians)
+        final_model.fit(X_all, y_all)
+        joblib.dump(final_model, output_path)
+        return {"selected_model": best_name, "validation": results}
+
+    print("--- تدريب نموذج انحدار سعر اليوم التالي (آخر أسبوعين) ---")
+    model_metrics["next_day_price_regression"] = train_price_regression_target(
+        'target_next_day_return',
+        os.path.join(MODEL_DIR, "tasi_reg_model_next_day.joblib")
+    )
     
     # 1. تدريب النموذج اليومي (Alpha Outperformer)
     print("--- تدريب النموذج اليومي ---")
@@ -203,6 +304,8 @@ def train_tasi_models(processed_file_path):
     # حفظ الأسماء والبيانات
     joblib.dump(features, os.path.join(MODEL_DIR, "feature_names.joblib"))
     joblib.dump(feature_medians, os.path.join(MODEL_DIR, "feature_medians.joblib"))
+    joblib.dump(price_regression_features, os.path.join(MODEL_DIR, "regression_feature_names.joblib"))
+    joblib.dump(regression_feature_medians, os.path.join(MODEL_DIR, "regression_feature_medians.joblib"))
     with open(os.path.join(MODEL_DIR, "model_metrics.json"), "w", encoding="utf-8") as f:
         json.dump(model_metrics, f, ensure_ascii=False, indent=2)
     

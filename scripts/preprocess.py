@@ -15,6 +15,7 @@ from scripts.company_names import get_arabic_company_name
 warnings.filterwarnings('ignore', category=RuntimeWarning)
 
 NOMU_PREFIXES = ("95", "96")
+PRICE_LAG_DAYS = 10
 
 def is_main_market_symbol(symbol):
     code = str(symbol).replace(".SR", "").strip()
@@ -150,7 +151,19 @@ def calculate_advanced_metrics(df):
 
     # 7. الأهداف المستقبلية
     df['target_next_day_return'] = df['daily_return'].shift(-1)
+    df['target_next_day_close'] = df_ta['close'].shift(-1)
     df['target_next_week_return'] = df_ta['close'].pct_change(5).shift(-5)
+
+    # ميزات آخر أسبوعين تداول لاستخدامها في نماذج الانحدار للسعر القادم.
+    for lag in range(1, PRICE_LAG_DAYS + 1):
+        df[f'close_lag_{lag}'] = df_ta['close'].shift(lag)
+        df[f'volume_lag_{lag}'] = df_ta['volume'].shift(lag)
+        df[f'return_lag_{lag}'] = df['daily_return'].shift(lag)
+
+    df['close_mean_10d'] = df_ta['close'].rolling(PRICE_LAG_DAYS).mean()
+    df['close_std_10d'] = df_ta['close'].rolling(PRICE_LAG_DAYS).std()
+    df['volume_mean_10d'] = df_ta['volume'].rolling(PRICE_LAG_DAYS).mean()
+    df['return_sum_10d'] = df['daily_return'].rolling(PRICE_LAG_DAYS).sum()
     
     df.columns = [c.lower() for c in df.columns]
     rename_dict = {
@@ -160,7 +173,11 @@ def calculate_advanced_metrics(df):
     }
     df = df.rename(columns=rename_dict)
     
-    target_cols = ['target_next_day_return', 'target_next_week_return', 'target_outperformer_1d', 'target_alpha_weekly', 'target_daily_bin', 'target_weekly_bin']
+    target_cols = [
+        'target_next_day_return', 'target_next_day_close', 'target_next_week_return',
+        'target_return_10d', 'target_outperformer_1d', 'target_alpha_weekly',
+        'target_alpha_medium', 'target_daily_bin', 'target_weekly_bin'
+    ]
     feature_cols = [c for c in df.columns if c not in target_cols]
     df[feature_cols] = df[feature_cols].replace([np.inf, -np.inf], np.nan).ffill().fillna(0)
     return df
@@ -197,6 +214,8 @@ def preprocess_all_data(combined_file_path, output_file_path):
     
     final_df = pd.concat(processed_dfs)
     final_df = final_df.sort_values(['date', 'symbol'])
+    # Defragment before adding cross-symbol targets and market-wide features.
+    final_df = final_df.copy()
     
     print("حساب أهداف الـ Alpha والمقاييس العابرة للشركات...")
     
@@ -225,6 +244,7 @@ def preprocess_all_data(combined_file_path, output_file_path):
             'market_breadth_sma50': final_df.assign(above=final_df['close'] > final_df['sma_50'].replace(0, 999999)).groupby('date')['above'].mean(),
         })
         final_df = final_df.merge(breadth, left_on='date', right_index=True, how='left')
+        final_df = final_df.copy()
     
     if {'date', 'sector', 'daily_return', 'market_return'}.issubset(final_df.columns):
         sector_stats = final_df.groupby(['date', 'sector'])['daily_return'].mean().reset_index()
@@ -233,6 +253,7 @@ def preprocess_all_data(combined_file_path, output_file_path):
         sector_stats['sector_momentum_20d'] = sector_stats.groupby('sector')['daily_return'].transform(lambda x: x.rolling(20).mean())
         
         final_df = final_df.merge(sector_stats[['date', 'sector', 'sector_return_1d', 'sector_momentum_20d']], on=['date', 'sector'], how='left')
+        final_df = final_df.copy()
         final_df['sector_relative_return_1d'] = final_df['sector_return_1d'] - final_df['market_return']
         final_df['relative_sector_alpha'] = final_df['daily_return'] - final_df['sector_return_1d']
         
