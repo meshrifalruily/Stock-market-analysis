@@ -6,6 +6,7 @@
     <title>منصة تاسي الذكية</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
+    <link href="/static/styles.css" rel="stylesheet">
     <style>
         body { font-family: 'Tajawal', sans-serif; background-color: #0f172a; color: #f8fafc; }
         .gradient-emerald { background: linear-gradient(135deg, #065f46 0%, #059669 100%); }
@@ -25,6 +26,7 @@
                 <div class="mt-3 flex gap-2">
                     <a href="/market-closes" class="bg-white/10 hover:bg-white/20 px-3 py-1 rounded-lg text-xs font-bold border border-white/10 transition">إغلاقات السوق</a>
                     <a href="/current-prices" class="bg-white/10 hover:bg-white/20 px-3 py-1 rounded-lg text-xs font-bold border border-white/10 transition">الأسعار الحالية</a>
+                    <a href="/recommendation-evaluations" class="bg-white/10 hover:bg-white/20 px-3 py-1 rounded-lg text-xs font-bold border border-white/10 transition">تقييم الترشيحات</a>
                 </div>
             </div>
             <div class="text-left space-y-1">
@@ -136,7 +138,7 @@
         <!-- Sector Strength & Heatmap -->
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-10">
             <div class="lg:col-span-4 glass p-6 rounded-3xl">
-                <h2 class="text-sm font-bold mb-4 text-emerald-400 uppercase tracking-wider">🔥 ثقة القطاعات (أسبوعي)</h2>
+                <h2 class="text-sm font-bold mb-4 text-emerald-400 uppercase tracking-wider">ثقة القطاعات الأسبوعية</h2>
                 <div class="space-y-4">
                     {% for sector, perf in sectors.items() %}
                     <div>
@@ -153,7 +155,7 @@
             </div>
 
             <div class="lg:col-span-8 glass p-6 rounded-3xl overflow-hidden">
-                <h2 class="text-sm font-bold mb-4 text-emerald-400 uppercase tracking-wider">🗺️ خريطة الثقة - أقوى {{ heatmap_predictions|length }} سهم في السوق الرئيسي</h2>
+                <h2 class="text-sm font-bold mb-4 text-emerald-400 uppercase tracking-wider">خريطة الثقة - أقوى {{ heatmap_predictions|length }} سهم في السوق الرئيسي</h2>
                 <div class="grid grid-cols-4 md:grid-cols-5 gap-2 h-64">
                     {% for stock in heatmap_predictions %}
                     {% set color = "bg-emerald-600" if stock.predicted_weekly > 70 else ("bg-emerald-800" if stock.predicted_weekly > 60 else "bg-slate-800") %}
@@ -168,8 +170,8 @@
 
         <!-- Top 3 Picks -->
         <div class="flex justify-between items-end mb-8">
-            <h2 class="text-2xl font-black">🎯 نخبة السوق الرئيسي</h2>
-            <button onclick="updateData()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-2xl transition-all font-bold text-xs shadow-lg">🔄 تحديث النماذج والبيانات</button>
+            <h2 class="text-2xl font-black">نخبة السوق الرئيسي</h2>
+            <button onclick="updateData()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-2xl transition-all font-bold text-xs shadow-lg">تحديث النماذج والبيانات</button>
         </div>
 
         {% if top_3 %}
@@ -246,8 +248,12 @@
 
         <!-- Full Market Table -->
         <section class="glass rounded-3xl border border-white/5 overflow-hidden">
-            <div class="p-6 border-b border-white/5 bg-white/5">
-                <h2 class="text-xl font-bold">📊 قائمة الاحتمالات لأسهم السوق الرئيسي</h2>
+            <div class="p-6 border-b border-white/5 bg-white/5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                <div>
+                    <h2 class="text-xl font-bold">قائمة الاحتمالات لأسهم السوق الرئيسي</h2>
+                    <p class="text-xs text-slate-400 mt-1">بحث مباشر في الأسهم والقطاعات والرموز بدون تغيير نتائج النموذج.</p>
+                </div>
+                <input id="predictionSearch" type="search" placeholder="بحث باسم الشركة أو الرمز أو القطاع" class="bg-slate-950/60 border border-white/10 rounded-xl px-4 py-2 text-sm outline-none focus:border-emerald-400 lg:w-96">
             </div>
             <div class="overflow-x-auto">
                 <table class="w-full text-right">
@@ -266,7 +272,7 @@
                     </thead>
                     <tbody class="divide-y divide-white/5 text-sm">
                         {% for stock in predictions %}
-                        <tr class="hover:bg-white/5 transition cursor-pointer" onclick="window.location='/stock/{{ stock.symbol }}'">
+                        <tr class="hover:bg-white/5 transition cursor-pointer prediction-row" data-search="{{ stock.symbol }} {{ stock.company_name }} {{ stock.sector }} {{ stock.action }} {{ stock.entry_status }}" onclick="window.location='/stock/{{ stock.symbol }}'">
                             <td class="p-4">
                                 <div class="font-bold text-emerald-400 hover:underline">{{ stock.company_name }}</div>
                                 <div class="text-[10px] text-slate-500">{{ stock.symbol }}</div>
@@ -310,6 +316,15 @@
                     });
             }
         }
+
+        const predictionSearch = document.getElementById('predictionSearch');
+        const predictionRows = Array.from(document.querySelectorAll('.prediction-row'));
+        predictionSearch.addEventListener('input', () => {
+            const query = predictionSearch.value.trim().toLowerCase();
+            predictionRows.forEach((row) => {
+                row.style.display = row.dataset.search.toLowerCase().includes(query) ? '' : 'none';
+            });
+        });
     </script>
 </body>
 </html>

@@ -185,11 +185,7 @@ def sync_portfolio_with_recommendations(recommendations, data_date, config, path
     data_date = str(data_date)
     rec_map = _recommendation_map(recommendations)
     _mark_positions(state, rec_map)
-
-    if state.get("last_signal_date") == data_date:
-        state["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-        save_portfolio_state(state, path)
-        return _portfolio_totals(state)
+    already_processed_today = state.get("last_signal_date") == data_date
 
     for symbol in list(state["positions"].keys()):
         position = state["positions"][symbol]
@@ -214,7 +210,7 @@ def sync_portfolio_with_recommendations(recommendations, data_date, config, path
 
     max_positions = int(config.get("max_positions", 3))
     available_slots = max_positions - len(state["positions"])
-    if available_slots > 0:
+    if available_slots > 0 and not already_processed_today:
         current_symbols = set(state["positions"])
         buys = [
             rec for rec in recommendations

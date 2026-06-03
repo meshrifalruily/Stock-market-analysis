@@ -14,6 +14,7 @@ from scripts.company_names import get_arabic_company_name
 from scripts.paper_portfolio import reset_portfolio, sync_portfolio_with_recommendations
 from scripts.strategy_config import load_strategy_config
 from scripts.strategy_rules import add_hybrid_scores, entry_diagnostics, filter_main_market
+import json
 
 app = FastAPI(title="منصة تاسي الذكية", description="منصة تحليل احتمالي لأسهم السوق السعودي الرئيسي")
 
@@ -31,6 +32,7 @@ REGRESSION_FEATURES_PATH = os.path.join(ROOT_DIR, "models/regression_feature_nam
 REGRESSION_FEATURE_MEDIANS_PATH = os.path.join(ROOT_DIR, "models/regression_feature_medians.joblib")
 BACKTEST_PATH = os.path.join(ROOT_DIR, "data/backtest_results.csv")
 PAPER_PORTFOLIO_PATH = os.path.join(ROOT_DIR, "data/paper_portfolio.json")
+RECOMMENDATION_LOG_PATH = os.path.join(ROOT_DIR, "data/recommendation_log.json")
 
 HEATMAP_LIMIT = int(os.getenv("TASI_HEATMAP_LIMIT", "60"))
 MARKET_SCOPE_LABEL = "السوق السعودي الرئيسي فقط"
@@ -43,6 +45,7 @@ MARKET_CLOSE_HOUR = int(os.getenv("TASI_MARKET_CLOSE_HOUR", "15"))
 MARKET_CLOSE_MINUTE = int(os.getenv("TASI_MARKET_CLOSE_MINUTE", "20"))
 
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
+app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 
 def load_system_assets():
     if not all(os.path.exists(p) for p in [MODEL_DAILY_PATH, MODEL_WEEKLY_PATH, DATA_PATH]):
@@ -108,7 +111,7 @@ def get_prediction_base_date(df):
         return eligible_dates[-1]
     return dates[0]
 
-def build_trade_setup(current_price, atr, p_daily, p_weekly, p_medium, is_liquid=True, return_5d=0, hybrid_rank=999, rsi=50, adx=0, above_sma20=False, predicted_next_close=None):
+def build_trade_setup(current_price, atr, p_daily, p_weekly, p_medium, is_liquid=True, return_5d=0, hybrid_rank=999, rsi=50, adx=0, above_sma20=False, predicted_next_close=None, predicted_next_return=None):
     valid_price = current_price > 0
     valid_atr = atr > 0 and valid_price
     atr_risk = atr if valid_atr else current_price * 0.02
@@ -123,6 +126,8 @@ def build_trade_setup(current_price, atr, p_daily, p_weekly, p_medium, is_liquid
     
     # حماية ضد الشراء في القمة أو محاولة التقاط سكين هابط
     is_not_overextended = STRATEGY_CONFIG["min_entry_return_5d"] <= return_5d <= STRATEGY_CONFIG["max_entry_return_5d"]
+    min_next_return = STRATEGY_CONFIG.get("min_predicted_next_return", 0.0)
+    has_safe_next_day_forecast = predicted_next_return is None or predicted_next_return >= min_next_return
     passes_technical_gate = (
         hybrid_rank <= STRATEGY_CONFIG["max_entry_rank"] and
         STRATEGY_CONFIG["min_entry_rsi"] <= rsi <= STRATEGY_CONFIG["max_entry_rsi"] and
@@ -130,7 +135,7 @@ def build_trade_setup(current_price, atr, p_daily, p_weekly, p_medium, is_liquid
         above_sma20
     )
     
-    is_actionable = bool(valid_price and is_liquid and is_not_overextended and passes_technical_gate and (p_weekly > CONFIDENCE_THRESHOLD_WEEKLY))
+    is_actionable = bool(valid_price and is_liquid and is_not_overextended and has_safe_next_day_forecast and passes_technical_gate and (p_weekly > CONFIDENCE_THRESHOLD_WEEKLY))
 
     if not valid_price:
         action = "بيانات سعر غير كافية"
@@ -140,6 +145,9 @@ def build_trade_setup(current_price, atr, p_daily, p_weekly, p_medium, is_liquid
         action_class = "avoid"
     elif not is_not_overextended:
         action = "متضخم سعرياً"
+        action_class = "avoid"
+    elif not has_safe_next_day_forecast:
+        action = "انتظار: توقع الغد سلبي"
         action_class = "avoid"
     elif is_actionable and p_weekly > 0.60:
         action = "شراء عالي الجودة"
@@ -164,12 +172,12 @@ def build_trade_setup(current_price, atr, p_daily, p_weekly, p_medium, is_liquid
         "action_class": action_class,
     }
 
-def get_market_intelligence():
+def get_market_intelligence(prediction_date_override=None):
     df, m_daily, m_weekly, m_medium, features, feature_medians, m_regression, regression_features, regression_feature_medians = load_system_assets()
     if df is None: return []
 
     latest_data = []
-    prediction_date = get_prediction_base_date(df)
+    prediction_date = pd.Timestamp(prediction_date_override) if prediction_date_override else get_prediction_base_date(df)
     if prediction_date is None:
         return []
     
@@ -238,7 +246,8 @@ def get_market_intelligence():
             rsi=float(row['rsi']) if 'rsi' in latest_rows.columns and not pd.isna(row['rsi']) else 50,
             adx=float(row['tv_adx']) if 'tv_adx' in latest_rows.columns and not pd.isna(row['tv_adx']) else 0,
             above_sma20=bool(row['close'] > row['sma_20']) if 'sma_20' in latest_rows.columns else False,
-            predicted_next_close=predicted_next_close
+            predicted_next_close=predicted_next_close,
+            predicted_next_return=predicted_next_return
         )
         
         # تعديل الحالة بناءً على وضع السوق
@@ -294,6 +303,189 @@ def get_market_intelligence():
         key=lambda x: (bool(x['is_actionable']), -x['hybrid_rank'], x['predicted_weekly'] or 0.0),
         reverse=True
     )
+
+def load_recommendation_log():
+    if not os.path.exists(RECOMMENDATION_LOG_PATH):
+        return []
+    try:
+        with open(RECOMMENDATION_LOG_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except (OSError, json.JSONDecodeError):
+        return []
+
+def import_recommendations_from_paper_trades(records, df):
+    if not os.path.exists(PAPER_PORTFOLIO_PATH):
+        return records
+    try:
+        with open(PAPER_PORTFOLIO_PATH, "r", encoding="utf-8") as f:
+            portfolio = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return records
+
+    existing_keys = {(item.get("recommendation_date"), item.get("symbol")) for item in records}
+    imported = []
+    for trade in portfolio.get("trades", []):
+        if trade.get("side") != "شراء":
+            continue
+        rec_date = str(trade.get("date") or "")
+        symbol = trade.get("symbol")
+        if not rec_date or not symbol or (rec_date, symbol) in existing_keys:
+            continue
+
+        trade_date = pd.Timestamp(rec_date)
+        history = df[(df["symbol"] == symbol) & (df["date"] <= trade_date)].sort_values("date")
+        if history.empty:
+            continue
+        row = history.iloc[-1]
+        entry = float(trade.get("price") or row.get("close") or 0)
+        atr = float(row.get("atr") or 0)
+        atr_risk = atr if atr > 0 and entry > 0 else entry * 0.02
+        stop_distance = STRATEGY_CONFIG["stop_loss_atr_mult"] * atr_risk
+        target_distance = STRATEGY_CONFIG["take_profit_atr_mult"] * stop_distance
+        target_weekly = entry + max(entry * 0.03, target_distance) if entry > 0 else None
+        stop = max(0.01, entry - stop_distance) if entry > 0 else 0
+
+        imported.append({
+            "recommendation_date": rec_date,
+            "recorded_at": trade.get("timestamp") or "",
+            "symbol": symbol,
+            "company_name": trade.get("company_name", symbol),
+            "sector": row.get("sector", "عام"),
+            "entry": round(entry, 2),
+            "target_daily": None,
+            "target_weekly": round(target_weekly, 2) if target_weekly else None,
+            "stop": round(stop, 2),
+            "predicted_daily": 0,
+            "predicted_weekly": 0,
+            "hybrid_rank": 999,
+            "action": trade.get("reason", "شراء"),
+            "source": "paper_portfolio",
+        })
+
+    if not imported:
+        return records
+
+    combined_records = records + imported
+    combined_records.sort(key=lambda item: (item.get("recommendation_date", ""), item.get("hybrid_rank", 999)))
+    return combined_records
+
+def get_recommendation_evaluations():
+    df, _, _, _, _, _, _, _, _ = load_system_assets()
+    if df is None or df.empty:
+        return [], {}
+
+    dates = sorted(pd.Timestamp(value) for value in df['date'].dropna().unique())
+    completed_day = latest_completed_saudi_trading_day()
+    completed_dates = [date_value for date_value in dates if date_value <= completed_day]
+    latest_close_date = completed_dates[-1] if completed_dates else (dates[-1] if dates else None)
+    previous_close_date = None
+    if latest_close_date is not None:
+        previous_dates = [date_value for date_value in dates if date_value < latest_close_date]
+        previous_close_date = previous_dates[-1] if previous_dates else None
+
+    base_summary = {
+        "count": 0,
+        "completed_count": 0,
+        "pending_count": 0,
+        "hit_count": 0,
+        "progress_count": 0,
+        "away_count": 0,
+        "stop_count": 0,
+        "latest_cycle_count": 0,
+        "latest_cycle_completed_count": 0,
+        "latest_recommendation_date": previous_close_date.strftime("%Y-%m-%d") if previous_close_date is not None else None,
+        "latest_evaluation_close_date": latest_close_date.strftime("%Y-%m-%d") if latest_close_date is not None else None,
+    }
+
+    records = load_recommendation_log()
+    records = import_recommendations_from_paper_trades(records, df)
+    if not records:
+        return [], base_summary
+
+    rows = []
+    for rec in records:
+        rec_date = pd.Timestamp(rec.get("recommendation_date"))
+        symbol = rec.get("symbol")
+        next_dates = [date_value for date_value in dates if date_value > rec_date]
+        next_date = next_dates[0] if next_dates else None
+        entry = float(rec.get("entry") or 0)
+        target = rec.get("target_daily") or rec.get("target_weekly")
+        target = float(target) if target else None
+        stop = float(rec.get("stop") or 0)
+
+        evaluation = {
+            **rec,
+            "next_date": next_date.strftime("%Y-%m-%d") if next_date is not None else None,
+            "next_close": None,
+            "next_high": None,
+            "next_low": None,
+            "return_pct": None,
+            "target_gap_pct": None,
+            "status": "بانتظار إغلاق الجلسة التالية",
+            "status_class": "pending",
+        }
+
+        if next_date is not None:
+            match = df[(df['symbol'] == symbol) & (df['date'] == next_date)]
+            if not match.empty:
+                row = match.iloc[0]
+                next_close = float(row['close'])
+                next_high = float(row['high']) if 'high' in match.columns and not pd.isna(row['high']) else next_close
+                next_low = float(row['low']) if 'low' in match.columns and not pd.isna(row['low']) else next_close
+                return_pct = ((next_close / entry) - 1) * 100 if entry else 0.0
+
+                evaluation.update({
+                    "next_close": round(next_close, 2),
+                    "next_high": round(next_high, 2),
+                    "next_low": round(next_low, 2),
+                    "return_pct": round(return_pct, 2),
+                })
+
+                if target:
+                    gap = ((target / next_close) - 1) * 100 if next_close else 0.0
+                    evaluation["target_gap_pct"] = round(gap, 2)
+                    if next_high >= target:
+                        evaluation["status"] = "تحقق الهدف"
+                        evaluation["status_class"] = "hit"
+                    elif stop > 0 and next_low <= stop:
+                        evaluation["status"] = "ضرب وقف الخسارة"
+                        evaluation["status_class"] = "stop"
+                    elif next_close > entry:
+                        evaluation["status"] = "ارتفع ويتجه للهدف"
+                        evaluation["status_class"] = "progress"
+                    else:
+                        evaluation["status"] = "ابتعد عن الهدف"
+                        evaluation["status_class"] = "away"
+                elif next_close > entry:
+                    evaluation["status"] = "ارتفع بدون هدف محفوظ"
+                    evaluation["status_class"] = "progress"
+                else:
+                    evaluation["status"] = "تراجع بدون هدف محفوظ"
+                    evaluation["status_class"] = "away"
+
+        rows.append(evaluation)
+
+    rows = sorted(rows, key=lambda item: (item.get("recommendation_date") or "", item.get("hybrid_rank") or 999), reverse=True)
+    completed = [item for item in rows if item.get("next_close") is not None]
+    latest_cycle = [
+        item for item in rows
+        if item.get("recommendation_date") == base_summary["latest_recommendation_date"]
+    ]
+    latest_cycle_completed = [item for item in latest_cycle if item.get("next_close") is not None]
+    summary = {
+        **base_summary,
+        "count": len(rows),
+        "completed_count": len(completed),
+        "pending_count": len(rows) - len(completed),
+        "hit_count": sum(1 for item in rows if item.get("status_class") == "hit"),
+        "progress_count": sum(1 for item in rows if item.get("status_class") == "progress"),
+        "away_count": sum(1 for item in rows if item.get("status_class") == "away"),
+        "stop_count": sum(1 for item in rows if item.get("status_class") == "stop"),
+        "latest_cycle_count": len(latest_cycle),
+        "latest_cycle_completed_count": len(latest_cycle_completed),
+    }
+    return rows, summary
 
 def get_market_prices(mode="previous_close"):
     df, _, _, _, _, _, _, _, _ = load_system_assets()
@@ -418,6 +610,20 @@ async def read_root(request: Request):
             "paper_portfolio": paper_portfolio,
             "prediction_date": prediction_date,
             "last_update": datetime.now().strftime("%H:%M")
+        }
+    )
+
+@app.get("/recommendation-evaluations", response_class=HTMLResponse)
+async def recommendation_evaluations(request: Request):
+    evaluations, summary = get_recommendation_evaluations()
+    return templates.TemplateResponse(
+        request=request, name="recommendation_evaluations.html",
+        context={
+            "request": request,
+            "evaluations": evaluations,
+            "summary": summary,
+            "market_scope": MARKET_SCOPE_LABEL,
+            "last_update": datetime.now().strftime("%Y-%m-%d %H:%M"),
         }
     )
 

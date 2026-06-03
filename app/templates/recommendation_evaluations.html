@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تقييم الترشيحات | منصة تاسي الذكية</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
+    <link href="/static/styles.css" rel="stylesheet">
+    <style>
+        body { font-family: 'Tajawal', sans-serif; background-color: #0f172a; color: #f8fafc; }
+        .gradient-emerald { background: linear-gradient(135deg, #065f46 0%, #059669 100%); }
+        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
+    </style>
+</head>
+<body class="pb-12">
+    <header class="gradient-emerald p-6 shadow-2xl sticky top-0 z-50">
+        <div class="container mx-auto flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div>
+                <div class="flex flex-wrap items-center gap-2 mb-2">
+                    <a href="/" class="bg-white/10 hover:bg-white/20 px-3 py-1 rounded-lg text-xs font-bold border border-white/10 transition">لوحة التحليل</a>
+                    <a href="/market-closes" class="bg-white/10 hover:bg-white/20 px-3 py-1 rounded-lg text-xs font-bold border border-white/10 transition">إغلاقات السوق</a>
+                    <a href="/current-prices" class="bg-white/10 hover:bg-white/20 px-3 py-1 rounded-lg text-xs font-bold border border-white/10 transition">الأسعار الحالية</a>
+                </div>
+                <h1 class="text-3xl font-bold tracking-tight">تقييم الترشيحات</h1>
+                <p class="text-emerald-100 text-xs mt-1 italic">{{ market_scope }} | التقييم يتم بعد إغلاق الجلسة التالية للترشيح.</p>
+            </div>
+            <div class="text-left space-y-1">
+                <div class="bg-white/10 px-4 py-1 rounded-full text-[10px] font-bold border border-white/20">عدد الترشيحات: {{ summary.count or 0 }}</div>
+                <div class="text-[10px] opacity-60">آخر تحديث: {{ last_update }}</div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container mx-auto mt-8 px-4">
+        <section class="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-8">
+            <div class="glass p-5 rounded-2xl">
+                <div class="text-[10px] text-slate-400 font-bold mb-1">تم تقييمها</div>
+                <div class="text-3xl font-black text-white">{{ summary.completed_count or 0 }}</div>
+            </div>
+            <div class="glass p-5 rounded-2xl">
+                <div class="text-[10px] text-slate-400 font-bold mb-1">بانتظار الإغلاق</div>
+                <div class="text-3xl font-black text-slate-300">{{ summary.pending_count or 0 }}</div>
+            </div>
+            <div class="glass p-5 rounded-2xl">
+                <div class="text-[10px] text-slate-400 font-bold mb-1">تحقق الهدف</div>
+                <div class="text-3xl font-black text-emerald-400">{{ summary.hit_count or 0 }}</div>
+            </div>
+            <div class="glass p-5 rounded-2xl">
+                <div class="text-[10px] text-slate-400 font-bold mb-1">يتجه للهدف</div>
+                <div class="text-3xl font-black text-blue-300">{{ summary.progress_count or 0 }}</div>
+            </div>
+            <div class="glass p-5 rounded-2xl">
+                <div class="text-[10px] text-slate-400 font-bold mb-1">ابتعد عن الهدف</div>
+                <div class="text-3xl font-black text-red-400">{{ summary.away_count or 0 }}</div>
+            </div>
+            <div class="glass p-5 rounded-2xl">
+                <div class="text-[10px] text-slate-400 font-bold mb-1">وقف الخسارة</div>
+                <div class="text-3xl font-black text-amber-300">{{ summary.stop_count or 0 }}</div>
+            </div>
+        </section>
+
+        {% if summary.latest_recommendation_date and summary.latest_cycle_count == 0 %}
+        <section class="glass rounded-2xl border border-amber-400/20 p-6 mb-8 bg-amber-500/10">
+            <div class="text-lg font-bold text-amber-200 mb-2">لا توجد نتائج تقييم للدورة الأحدث</div>
+            <p class="text-sm text-slate-200 leading-7">
+                لم يتم العثور على ترشيحات مستوفية لشروط الشراء في قاعدة التنبؤ:
+                <span class="font-mono text-amber-100">إغلاق {{ summary.latest_recommendation_date }}</span>
+                {% if summary.latest_evaluation_close_date %}
+                لذلك لا توجد أسهم لمقارنتها بإغلاق السوق:
+                <span class="font-mono text-amber-100">{{ summary.latest_evaluation_close_date }}</span>.
+                {% endif %}
+            </p>
+            <p class="text-xs text-slate-400 mt-2">
+                السجلات القديمة أدناه محفوظة كأرشيف فقط، ولا تعني وجود فرص جديدة في دورة التقييم الحالية.
+            </p>
+        </section>
+        {% endif %}
+
+        <section class="glass rounded-3xl border border-white/5 overflow-hidden">
+            <div class="p-6 border-b border-white/5 bg-white/5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                <div>
+                    <h2 class="text-xl font-bold">
+                        {% if summary.latest_cycle_count == 0 and evaluations %}
+                        أرشيف تقييم الترشيحات السابقة
+                        {% else %}
+                        متابعة الترشيحات بعد الجلسة التالية
+                        {% endif %}
+                    </h2>
+                    <p class="text-xs text-slate-400 mt-1">تظهر هنا فقط الترشيحات التي اجتازت شروط الشراء الصارمة وسُجلت من لوحة التحليل.</p>
+                </div>
+                <input id="evalSearch" type="search" placeholder="بحث باسم الشركة أو الرمز" class="bg-slate-950/60 border border-white/10 rounded-xl px-4 py-2 text-sm outline-none focus:border-emerald-400 lg:w-80">
+            </div>
+
+            {% if evaluations %}
+            <div class="overflow-x-auto">
+                <table class="w-full text-right" id="evaluationsTable">
+                    <thead class="bg-slate-900 text-slate-500 text-[10px] uppercase font-bold">
+                        <tr>
+                            <th class="p-4">الشركة</th>
+                            <th class="p-4">تاريخ الترشيح</th>
+                            <th class="p-4">جلسة التقييم</th>
+                            <th class="p-4">الدخول</th>
+                            <th class="p-4">الهدف</th>
+                            <th class="p-4">إغلاق التقييم</th>
+                            <th class="p-4">التغير</th>
+                            <th class="p-4">البعد عن الهدف</th>
+                            <th class="p-4">الحالة</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-white/5 text-sm">
+                        {% for item in evaluations %}
+                        {% set status_color = 'bg-emerald-500/15 text-emerald-300' if item.status_class == 'hit' else ('bg-blue-500/15 text-blue-300' if item.status_class == 'progress' else ('bg-red-500/15 text-red-300' if item.status_class == 'away' else ('bg-amber-500/15 text-amber-300' if item.status_class == 'stop' else 'bg-slate-700 text-slate-300'))) %}
+                        <tr class="hover:bg-white/5 transition eval-row" data-search="{{ item.symbol }} {{ item.company_name }} {{ item.sector }}">
+                            <td class="p-4">
+                                <a href="/stock/{{ item.symbol }}" class="font-bold text-emerald-400 hover:underline">{{ item.company_name }}</a>
+                                <div class="text-[10px] text-slate-500">{{ item.symbol }} | رتبة #{{ item.hybrid_rank }}</div>
+                            </td>
+                            <td class="p-4 font-mono text-xs">{{ item.recommendation_date }}</td>
+                            <td class="p-4 font-mono text-xs">{{ item.next_date or "---" }}</td>
+                            <td class="p-4 font-mono">{{ "%.2f"|format(item.entry) }}</td>
+                            <td class="p-4 font-mono text-blue-300">
+                                {% if item.target_daily %}{{ "%.2f"|format(item.target_daily) }}{% elif item.target_weekly %}{{ "%.2f"|format(item.target_weekly) }}{% else %}---{% endif %}
+                            </td>
+                            <td class="p-4 font-mono font-bold text-white">{{ item.next_close if item.next_close is not none else "---" }}</td>
+                            <td class="p-4 font-mono font-bold {{ 'text-emerald-400' if item.return_pct is not none and item.return_pct > 0 else ('text-red-400' if item.return_pct is not none and item.return_pct < 0 else 'text-slate-300') }}">
+                                {{ item.return_pct if item.return_pct is not none else "---" }}{% if item.return_pct is not none %}%{% endif %}
+                            </td>
+                            <td class="p-4 font-mono text-xs">
+                                {{ item.target_gap_pct if item.target_gap_pct is not none else "---" }}{% if item.target_gap_pct is not none %}%{% endif %}
+                            </td>
+                            <td class="p-4">
+                                <span class="text-[10px] px-2 py-1 rounded-full {{ status_color }}">{{ item.status }}</span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="p-8 text-sm text-slate-300">
+                {% if summary.latest_recommendation_date %}
+                لا توجد ترشيحات مستوفية للشروط في قاعدة التنبؤ: إغلاق {{ summary.latest_recommendation_date }}.
+                {% if summary.latest_evaluation_close_date %}
+                لذلك لا توجد نتائج لمقارنتها بإغلاق السوق {{ summary.latest_evaluation_close_date }}.
+                {% endif %}
+                {% else %}
+                لا توجد ترشيحات مسجلة بعد. عندما تظهر أسهم مستوفية لشروط الشراء في لوحة التحليل، سيتم تسجيلها هنا تلقائياً ثم تقييمها بعد إغلاق الجلسة التالية.
+                {% endif %}
+            </div>
+            {% endif %}
+        </section>
+    </main>
+
+    <script>
+        const searchInput = document.getElementById('evalSearch');
+        const rows = Array.from(document.querySelectorAll('.eval-row'));
+        searchInput.addEventListener('input', () => {
+            const query = searchInput.value.trim().toLowerCase();
+            rows.forEach((row) => {
+                row.style.display = row.dataset.search.toLowerCase().includes(query) ? '' : 'none';
+            });
+        });
+    </script>
+</body>
+</html>

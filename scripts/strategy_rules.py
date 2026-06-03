@@ -29,11 +29,13 @@ def add_hybrid_scores(day_data):
     return day_data
 
 def entry_candidates(day_data, current_symbols, config):
+    next_return = day_data.get("predicted_next_return", pd.Series(0.0, index=day_data.index))
     return day_data[
         (~day_data["symbol"].isin(current_symbols)) &
         (day_data["prob_win"] >= config["buy_prob_threshold"]) &
         (day_data["rank"] <= config["max_entry_rank"]) &
         (day_data["return_5d"].between(config["min_entry_return_5d"], config["max_entry_return_5d"])) &
+        (next_return >= config.get("min_predicted_next_return", 0.0)) &
         (day_data["rsi"].between(config["min_entry_rsi"], config["max_entry_rsi"])) &
         (day_data["close"] > day_data["sma_20"]) &
         (day_data["tv_adx"] >= config["min_entry_adx"])
@@ -51,6 +53,8 @@ def entry_diagnostics(row, config, market_breadth=None):
         reasons.append("ترتيب الاستراتيجية خارج أفضل الفرص")
     if not (config["min_entry_return_5d"] <= row.get("return_5d", 0) <= config["max_entry_return_5d"]):
         reasons.append("حركة آخر 5 أيام خارج النطاق المقبول")
+    if row.get("predicted_next_return", 0) < config.get("min_predicted_next_return", 0.0):
+        reasons.append("توقع الغد سلبي")
     if not (config["min_entry_rsi"] <= row.get("rsi", 50) <= config["max_entry_rsi"]):
         reasons.append("RSI خارج نطاق الدخول")
     if row.get("close", 0) <= row.get("sma_20", 0):

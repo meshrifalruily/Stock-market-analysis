@@ -12,6 +12,7 @@ DEFAULT_STRATEGY_CONFIG = {
     "max_hold_days": 3,
     "max_entry_return_5d": 0.07,
     "min_entry_return_5d": -0.03,
+    "min_predicted_next_return": 0.0,
     "min_entry_rsi": 45,
     "max_entry_rsi": 72,
     "min_entry_adx": 12,
@@ -31,6 +32,7 @@ ENV_MAP = {
     "TASI_MAX_HOLD_DAYS": ("max_hold_days", int),
     "TASI_MAX_ENTRY_RETURN_5D": ("max_entry_return_5d", float),
     "TASI_MIN_ENTRY_RETURN_5D": ("min_entry_return_5d", float),
+    "TASI_MIN_PREDICTED_NEXT_RETURN": ("min_predicted_next_return", float),
     "TASI_MIN_ENTRY_RSI": ("min_entry_rsi", float),
     "TASI_MAX_ENTRY_RSI": ("max_entry_rsi", float),
     "TASI_MIN_ENTRY_ADX": ("min_entry_adx", float),
@@ -56,4 +58,3 @@ def save_strategy_config(config, path=CONFIG_PATH):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(cleaned, f, ensure_ascii=False, indent=2)
     return cleaned
-

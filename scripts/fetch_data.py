@@ -162,6 +162,21 @@ def calculate_liquidity_sentiment(df):
     raw_score = 0.5 + (ret_5d * 3.0) + ((vol_ratio - 1.0) * 0.12)
     return raw_score.clip(0.05, 0.95)
 
+def load_cached_symbol_data(symbol):
+    cache_path = os.path.join(DATA_DIR, f"{symbol}.csv")
+    if not os.path.exists(cache_path):
+        return None
+    try:
+        cached = pd.read_csv(cache_path, index_col=0, parse_dates=True)
+        if cached.empty or 'Close' not in cached.columns:
+            return None
+        cached.index = pd.to_datetime(cached.index).tz_localize(None)
+        print(f"استخدام آخر نسخة محفوظة لـ {symbol} بسبب تعذر الجلب من Yahoo.")
+        return cached
+    except Exception as e:
+        print(f"تعذر تحميل الكاش المحلي لـ {symbol}: {e}")
+        return None
+
 def latest_completed_saudi_trading_day(now=None):
     current = now or datetime.now()
     trade_day = pd.Timestamp(current).normalize()
@@ -315,18 +330,26 @@ def apply_latest_price_snapshot(df, ticker, symbol):
     return df
 
 def fetch_stock_data(symbol, info_dict, is_macro=False):
-    today = datetime.now()
-    tomorrow = today + timedelta(days=1)
-    start_date = today - timedelta(days=365*3)
+    latest_trade_day = latest_completed_saudi_trading_day()
+    start_date = latest_trade_day - pd.Timedelta(days=365*3)
+    end_date = latest_trade_day + pd.Timedelta(days=1)  # yfinance end is exclusive.
     
     name = info_dict if is_macro else info_dict['name']
-    print(f"جاري سحب بيانات {name} ({symbol})...")
+    print(f"جاري سحب بيانات {name} ({symbol}) حتى إغلاق {latest_trade_day.date()}...")
     
     try:
         ticker = yf.Ticker(symbol)
-        df = yf.download(symbol, start=start_date.strftime('%Y-%m-%d'), end=tomorrow.strftime('%Y-%m-%d'), interval="1d", progress=False, auto_adjust=False)
+        df = yf.download(
+            symbol,
+            start=start_date.strftime('%Y-%m-%d'),
+            end=end_date.strftime('%Y-%m-%d'),
+            interval="1d",
+            progress=False,
+            auto_adjust=False,
+        )
         
-        if df.empty: return None
+        if df.empty:
+            return load_cached_symbol_data(symbol)
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
         if df.index.tz is not None: df.index = df.index.tz_localize(None)
         df = apply_latest_price_snapshot(df, ticker, symbol)
@@ -348,7 +371,15 @@ def fetch_stock_data(symbol, info_dict, is_macro=False):
         return df
     except Exception as e:
         print(f"خطأ في سحب بيانات {symbol}: {e}")
-        return None
+        return load_cached_symbol_data(symbol)
+
+def attach_macro_series(df, series):
+    column = series.name
+    if column in df.columns:
+        df = df.drop(columns=[column])
+    df = df.join(series, how='left')
+    df[column] = df[column].ffill().bfill()
+    return df
 
 def main():
     if not os.path.exists(DATA_DIR): os.makedirs(DATA_DIR)
@@ -377,13 +408,10 @@ def main():
         final_list = []
         for symbol, df in stocks_data.items():
             for m_sym, m_series in macro_dfs.items():
-                m_clean = m_sym.replace('=', '_')
-                df = df.join(m_series, how='left')
-                df[f"Macro_{m_clean}"] = df[f"Macro_{m_clean}"].ffill().bfill()
+                df = attach_macro_series(df, m_series)
             
             if market_proxy_df is not None:
-                df = df.join(market_proxy_df, how='left')
-                df["Macro_TASI_PROXY"] = df["Macro_TASI_PROXY"].ffill().bfill()
+                df = attach_macro_series(df, market_proxy_df)
             
             df.to_csv(f"{DATA_DIR}/{symbol}.csv")
             final_list.append(df)

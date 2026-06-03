@@ -7,7 +7,7 @@ import warnings
 import matplotlib
 matplotlib.use("Agg")
 import quantstats as qs
-from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
@@ -39,7 +39,23 @@ def train_walk_forward_model(history_df, features, target):
         max_iter=150, learning_rate=0.03, max_leaf_nodes=63, l2_regularization=1.5, random_state=42, class_weight='balanced'
     )
     model.fit(X, y)
-    return model, medians
+    reg_model = None
+    if 'target_next_day_return' in history_df.columns:
+        reg_train_df = history_df.sort_values('date').tail(756 * 200).dropna(subset=['target_next_day_return']).copy()
+        if len(reg_train_df) < 2000:
+            reg_train_df = history_df.dropna(subset=['target_next_day_return']).copy()
+        if len(reg_train_df) >= 2000:
+            X_reg = reg_train_df[features].replace([np.inf, -np.inf], np.nan).fillna(medians).fillna(0)
+            y_reg = reg_train_df['target_next_day_return'].clip(-0.2, 0.2)
+            reg_model = HistGradientBoostingRegressor(
+                max_iter=120,
+                learning_rate=0.03,
+                max_leaf_nodes=31,
+                l2_regularization=1.5,
+                random_state=42,
+            )
+            reg_model.fit(X_reg, y_reg)
+    return model, medians, reg_model
 
 def run_backtest(processed_file_path, model_path, features_path):
     config = load_strategy_config()
@@ -70,6 +86,7 @@ def run_backtest(processed_file_path, model_path, features_path):
     MIN_TRAIN_DAYS = 252
     RETRAIN_EVERY_N_DAYS = 90 
     model = None
+    reg_model = None
     medians = None
     last_retrain_idx = None
 
@@ -87,7 +104,7 @@ def run_backtest(processed_file_path, model_path, features_path):
 
         if model is None or last_retrain_idx is None or (i - last_retrain_idx) >= RETRAIN_EVERY_N_DAYS:
             print(f"إعادة تدريب Alpha-Model V6 حتى {current_date.date()}...")
-            model, medians = train_walk_forward_model(history_df, features, target)
+            model, medians, reg_model = train_walk_forward_model(history_df, features, target)
             last_retrain_idx = i
 
         # 2. جلب بيانات اليوم الحالي وتصفية السيولة
@@ -102,6 +119,11 @@ def run_backtest(processed_file_path, model_path, features_path):
         # 3. التنبؤ وحساب جودة الإشارة الهجينة
         X = prepare_features(day_data, features, medians)
         day_data['prob_win'] = model.predict_proba(X)[:, 1]
+        day_data['predicted_next_return'] = (
+            np.clip(reg_model.predict(X), -0.2, 0.2)
+            if reg_model is not None
+            else 0.0
+        )
         day_data = add_hybrid_scores(day_data)
 
         # Regime Filter
