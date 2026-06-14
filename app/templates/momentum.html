@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>محفظة الزخم طويلة الأفق | منصة تاسي الذكية</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
+    <link href="/static/styles.css" rel="stylesheet">
+    <style>
+        body { font-family: 'Tajawal', sans-serif; background-color: #0f172a; color: #f8fafc; }
+        .gradient-emerald { background: linear-gradient(135deg, #065f46 0%, #059669 100%); }
+        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
+        .bar { height: 6px; border-radius: 9999px; background: linear-gradient(90deg, #10b981, #34d399); }
+    </style>
+</head>
+<body class="pb-12">
+    <header class="gradient-emerald p-6 shadow-2xl sticky top-0 z-50">
+        <div class="container mx-auto flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div>
+                <div class="flex items-center gap-2 mb-2 flex-wrap">
+                    <a href="/" class="bg-white/10 hover:bg-white/20 px-3 py-1 rounded-lg text-xs font-bold border border-white/10 transition">لوحة التحليل</a>
+                    <a href="/market-closes" class="bg-white/10 hover:bg-white/20 px-3 py-1 rounded-lg text-xs font-bold border border-white/10 transition">إغلاقات السوق</a>
+                    <a href="/recommendation-evaluations" class="bg-white/10 hover:bg-white/20 px-3 py-1 rounded-lg text-xs font-bold border border-white/10 transition">تقييم الترشيحات</a>
+                </div>
+                <h1 class="text-3xl font-bold tracking-tight">محفظة الزخم طويلة الأفق <span class="text-emerald-300 text-sm font-normal">~{{ horizon_days }} يوم تداول</span></h1>
+                <p class="text-emerald-100 text-xs mt-1 italic">{{ market_scope }} | أقوى الأسهم زخماً | قاعدة الترشيح: إغلاق {{ prediction_date }}</p>
+            </div>
+            <div class="text-left space-y-1">
+                <div class="bg-white/10 px-4 py-1 rounded-full text-[10px] font-bold border border-white/20">عدد الترشيحات: {{ picks|length }}</div>
+                <div class="text-[10px] opacity-60">تحديث الصفحة: {{ last_update }}</div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container mx-auto mt-8 px-4">
+        <!-- شريط الأداء التاريخي المتحقّق منه -->
+        {% if validation %}
+        <section class="glass rounded-3xl border border-emerald-500/20 p-6 mb-8">
+            <h2 class="text-lg font-black mb-1">الأداء التاريخي المتحقّق منه (long-only، صافي التكاليف)</h2>
+            <p class="text-xs text-slate-400 mb-4">اختبار خارج العيّنة عبر {{ validation.total_years }} سنوات مقابل مؤشر تاسي الفعلي، نوافذ غير متقاطعة بأفق {{ validation.horizon }} يوماً، أعلى {{ (validation.top_pct*100)|int }}% زخماً.</p>
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="bg-slate-900/60 p-4 rounded-2xl border border-white/5">
+                    <div class="text-[10px] text-slate-400 font-bold mb-1">عائد الاستراتيجية</div>
+                    <div class="text-2xl font-black text-emerald-400">{{ (validation.strat_total*100)|round(0)|int }}%</div>
+                    <div class="text-[10px] text-slate-500">مقابل السوق {{ (validation.market_total*100)|round(0)|int }}%</div>
+                </div>
+                <div class="bg-slate-900/60 p-4 rounded-2xl border border-white/5">
+                    <div class="text-[10px] text-slate-400 font-bold mb-1">نسبة شارب للألفا</div>
+                    <div class="text-2xl font-black text-white">{{ validation.alpha_sharpe }}</div>
+                </div>
+                <div class="bg-slate-900/60 p-4 rounded-2xl border border-white/5">
+                    <div class="text-[10px] text-slate-400 font-bold mb-1">سنوات بألفا موجب</div>
+                    <div class="text-2xl font-black text-emerald-400">{{ validation.positive_alpha_years }}/{{ validation.total_years }}</div>
+                </div>
+                <div class="bg-slate-900/60 p-4 rounded-2xl border border-white/5">
+                    <div class="text-[10px] text-slate-400 font-bold mb-1">تفوّق على السوق</div>
+                    <div class="text-2xl font-black text-white">{{ (validation.win_vs_market*100)|round(0)|int }}%</div>
+                    <div class="text-[10px] text-slate-500">من الفترات</div>
+                </div>
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- جدول الترشيحات -->
+        <section class="glass rounded-3xl border border-white/10 overflow-hidden">
+            <div class="p-5 border-b border-white/5">
+                <h2 class="text-lg font-black">أقوى الأسهم زخماً الآن</h2>
+                <p class="text-xs text-slate-400 mt-1">مرتّبة حسب درجة الزخم المركّبة (price_vs_sma_200, price_vs_sma_50, momentum_20d, RSI, القرب من القمة, ADX). سائلة فقط وفي نظام سوق مؤاتٍ.</p>
+            </div>
+            {% if picks %}
+            <div class="overflow-x-auto">
+                <table class="w-full text-right text-xs">
+                    <thead class="text-slate-500 bg-slate-950/40">
+                        <tr>
+                            <th class="p-3">#</th>
+                            <th class="p-3">الشركة</th>
+                            <th class="p-3">القطاع</th>
+                            <th class="p-3">السعر</th>
+                            <th class="p-3">درجة الزخم</th>
+                            <th class="p-3">مقابل متوسط 200</th>
+                            <th class="p-3">زخم 20ي</th>
+                            <th class="p-3">RSI</th>
+                            <th class="p-3">وقف مقترح</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-white/5">
+                        {% for p in picks %}
+                        <tr class="hover:bg-white/5">
+                            <td class="p-3 font-mono text-slate-500">{{ loop.index }}</td>
+                            <td class="p-3">
+                                <div class="font-bold text-white">{{ p.company_name }}</div>
+                                <div class="text-[10px] text-slate-500">{{ p.symbol }}</div>
+                            </td>
+                            <td class="p-3 text-slate-400">{{ p.sector }}</td>
+                            <td class="p-3 font-mono">{{ p.current_price }}</td>
+                            <td class="p-3">
+                                <div class="flex items-center gap-2">
+                                    <div class="bar" style="width: {{ p.momentum_score }}%"></div>
+                                    <span class="font-mono text-emerald-300">{{ p.momentum_score }}</span>
+                                </div>
+                            </td>
+                            <td class="p-3 font-mono {{ 'text-emerald-400' if p.price_vs_sma_200 >= 0 else 'text-red-400' }}">{{ p.price_vs_sma_200 }}%</td>
+                            <td class="p-3 font-mono {{ 'text-emerald-400' if p.momentum_20d >= 0 else 'text-red-400' }}">{{ p.momentum_20d }}%</td>
+                            <td class="p-3 font-mono">{{ p.rsi }}</td>
+                            <td class="p-3 font-mono text-red-300">{{ p.stop }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="p-6 text-sm text-slate-400">لا توجد ترشيحات زخم حالياً — قد يكون نظام السوق غير مؤاتٍ (هبوط قوي) أو السيولة غير كافية.</div>
+            {% endif %}
+        </section>
+
+        <p class="text-[11px] text-slate-500 mt-6 leading-relaxed">
+            ⚠️ <b>تنبيه:</b> هذه أداة تحليلية تعليمية وليست توصية مالية. الأداء التاريخي لا يضمن النتائج المستقبلية،
+            والأرقام أعلاه اختبار خلفي صافٍ تقريبي. الأفق المقصود ~{{ horizon_days }} يوم تداول (≈3 أشهر) بإعادة موازنة دورية.
+        </p>
+    </main>
+</body>
+</html>

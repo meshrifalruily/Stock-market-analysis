@@ -112,6 +112,27 @@ def calculate_advanced_metrics(df):
         df['stoch_rsi_d'] = 0
         
     df['atr_slope'] = df['atr'].diff(5)
+
+    # 6.9 ميزات Microstructure (بنية التداول اليومية)
+    daily_range = (df_ta['high'] - df_ta['low']).replace(0, np.nan)
+    prev_close = df_ta['close'].shift(1)
+    # موضع الإغلاق داخل مدى اليوم: +1 إغلاق عند القمة، -1 عند القاع.
+    df['close_location_value'] = (
+        ((df_ta['close'] - df_ta['low']) - (df_ta['high'] - df_ta['close'])) / daily_range
+    ).clip(-1, 1)
+    # فجوة الافتتاح مقابل إغلاق الأمس (إشارة قوة/ضعف افتتاحية).
+    df['gap_open'] = ((df_ta['open'] - prev_close) / prev_close.replace(0, np.nan))
+    # المدى اليومي النسبي للسعر (تقلب داخل اليوم).
+    df['intraday_range_pct'] = daily_range / df_ta['close'].replace(0, np.nan)
+    # عائد الجلسة من الافتتاح للإغلاق (ضغط الشراء/البيع داخل اليوم).
+    df['close_vs_open'] = ((df_ta['close'] - df_ta['open']) / df_ta['open'].replace(0, np.nan))
+    # الظلال العلوية والسفلية (رفض القمم/القيعان).
+    body_high = df_ta[['open', 'close']].max(axis=1)
+    body_low = df_ta[['open', 'close']].min(axis=1)
+    df['upper_shadow_pct'] = ((df_ta['high'] - body_high) / df_ta['close'].replace(0, np.nan))
+    df['lower_shadow_pct'] = ((body_low - df_ta['low']) / df_ta['close'].replace(0, np.nan))
+    # متوسط موضع الإغلاق آخر 5 أيام (ضغط شرائي مستمر).
+    df['clv_mean_5d'] = df['close_location_value'].rolling(5).mean()
     
     if 'macdh_12_26_9' in df.columns:
         df['macd_histogram_slope'] = macd.iloc[:, 2].diff(3) if macd is not None else 0
@@ -155,15 +176,20 @@ def calculate_advanced_metrics(df):
     df['target_next_week_return'] = df_ta['close'].pct_change(5).shift(-5)
 
     # ميزات آخر أسبوعين تداول لاستخدامها في نماذج الانحدار للسعر القادم.
+    # نضيفها دفعة واحدة لتجنب تجزئة DataFrame وتكرار PerformanceWarning.
+    lag_features = {}
     for lag in range(1, PRICE_LAG_DAYS + 1):
-        df[f'close_lag_{lag}'] = df_ta['close'].shift(lag)
-        df[f'volume_lag_{lag}'] = df_ta['volume'].shift(lag)
-        df[f'return_lag_{lag}'] = df['daily_return'].shift(lag)
+        lag_features[f'close_lag_{lag}'] = df_ta['close'].shift(lag)
+        lag_features[f'volume_lag_{lag}'] = df_ta['volume'].shift(lag)
+        lag_features[f'return_lag_{lag}'] = df['daily_return'].shift(lag)
 
-    df['close_mean_10d'] = df_ta['close'].rolling(PRICE_LAG_DAYS).mean()
-    df['close_std_10d'] = df_ta['close'].rolling(PRICE_LAG_DAYS).std()
-    df['volume_mean_10d'] = df_ta['volume'].rolling(PRICE_LAG_DAYS).mean()
-    df['return_sum_10d'] = df['daily_return'].rolling(PRICE_LAG_DAYS).sum()
+    lag_features.update({
+        'close_mean_10d': df_ta['close'].rolling(PRICE_LAG_DAYS).mean(),
+        'close_std_10d': df_ta['close'].rolling(PRICE_LAG_DAYS).std(),
+        'volume_mean_10d': df_ta['volume'].rolling(PRICE_LAG_DAYS).mean(),
+        'return_sum_10d': df['daily_return'].rolling(PRICE_LAG_DAYS).sum(),
+    })
+    df = pd.concat([df, pd.DataFrame(lag_features, index=df.index)], axis=1).copy()
     
     df.columns = [c.lower() for c in df.columns]
     rename_dict = {
@@ -259,7 +285,54 @@ def preprocess_all_data(combined_file_path, output_file_path):
         
         cols_to_fill = ['sector_return_1d', 'sector_momentum_20d', 'sector_relative_return_1d', 'relative_sector_alpha']
         final_df[cols_to_fill] = final_df[cols_to_fill].fillna(0)
-        
+
+    # نظام السوق (Market Regime) — الانعكاس يفشل في الهبوط القوي (سكين هابط).
+    # نكتشف اتجاه مؤشر تاسي مقابل متوسطه + عائده على 20 يوماً، ونعرّف نظاماً
+    # مؤاتياً للانعكاس: المؤشر فوق متوسط 50 أو عائده 20ي ليس شديد السلبية.
+    if 'macro_tasi_proxy' in final_df.columns and final_df['macro_tasi_proxy'].notna().any():
+        idx = final_df.groupby('date')['macro_tasi_proxy'].first().sort_index()
+        idx_sma50 = idx.rolling(50, min_periods=20).mean()
+        idx_ret20 = idx.pct_change(20)
+        regime = pd.DataFrame({
+            'tasi_above_sma50': (idx > idx_sma50).astype(float),
+            'tasi_return_20d': idx_ret20.fillna(0),
+            'regime_ok': ((idx > idx_sma50) | (idx_ret20 > -0.05)).astype(float),
+        })
+        final_df = final_df.merge(regime, left_on='date', right_index=True, how='left')
+        final_df['regime_ok'] = final_df['regime_ok'].fillna(1.0)
+        final_df['tasi_above_sma50'] = final_df['tasi_above_sma50'].fillna(1.0)
+        final_df['tasi_return_20d'] = final_df['tasi_return_20d'].fillna(0)
+
+    # درجة الانعكاس المركّبة (mean-reversion) — اكتُشفت عبر بحث IC للعوامل.
+    # السوق قصير المدى انعكاسي: العوامل التالية ذات IC سالب قوي، فننفي رتبها
+    # المقطعية بحيث الدرجة الأعلى = الأكثر تشبّعاً بيعياً (مرشّح للارتداد).
+    # تُستخدم في توقيت الدخول الانعكاسي ضمن الاتجاه الصاعد (شراء الانخفاض).
+    reversal_components = [
+        'close_location_value', 'lower_shadow_pct', 'return_1d', 'return_2d',
+        'rsi_slope', 'close_vs_open', 'relative_return_1d',
+    ]
+    available_rev = [c for c in reversal_components if c in final_df.columns]
+    if available_rev:
+        rev_score = pd.Series(0.0, index=final_df.index)
+        for col in available_rev:
+            # رتبة مقطعية [0,1] داخل كل يوم، منفية (الأقل = الأكثر تشبّعاً = درجة أعلى).
+            rev_score = rev_score + (1.0 - final_df.groupby('date')[col].rank(pct=True))
+        final_df['reversal_score'] = (rev_score / len(available_rev)).fillna(0.5)
+
+    # درجة الزخم المركّبة (طويلة الأفق) — أقوى إشارة في تاسي (price_vs_sma_200 t=+27).
+    # رتب مقطعية موجبة لعوامل الزخم: الأعلى = الأقوى زخماً = المرشّح للاستمرار صعوداً.
+    # تحقّقت ربحيتها long-only صافي التكاليف على 60 يوماً (scripts/validate_momentum.py).
+    momentum_components = [
+        'price_vs_sma_200', 'price_vs_sma_50', 'momentum_20d', 'rsi',
+        'distance_from_high_20d', 'tv_adx',
+    ]
+    available_mom = [c for c in momentum_components if c in final_df.columns]
+    if available_mom:
+        mom_score = pd.Series(0.0, index=final_df.index)
+        for col in available_mom:
+            mom_score = mom_score + final_df.groupby('date')[col].rank(pct=True)
+        final_df['momentum_score'] = (mom_score / len(available_mom)).fillna(0.5)
+
     final_df.to_csv(output_file_path, index=False)
     print(f"تم حفظ البيانات المعالجة الشاملة في {output_file_path}")
 

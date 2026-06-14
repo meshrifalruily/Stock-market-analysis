@@ -9,7 +9,7 @@ DEFAULT_STRATEGY_CONFIG = {
     "min_entry_market_breadth": 0.50,
     "max_entry_rank": 15,
     "sell_prob_threshold": 0.54,
-    "max_hold_days": 3,
+    "max_hold_days": 5,
     "max_entry_return_5d": 0.07,
     "min_entry_return_5d": -0.03,
     "min_predicted_next_return": 0.0,
@@ -36,6 +36,9 @@ ENV_MAP = {
     "TASI_MIN_ENTRY_RSI": ("min_entry_rsi", float),
     "TASI_MAX_ENTRY_RSI": ("max_entry_rsi", float),
     "TASI_MIN_ENTRY_ADX": ("min_entry_adx", float),
+    "TASI_STOP_LOSS_ATR_MULT": ("stop_loss_atr_mult", float),
+    "TASI_TAKE_PROFIT_ATR_MULT": ("take_profit_atr_mult", float),
+    "TASI_MAX_POSITIONS": ("max_positions", int),
 }
 
 def load_strategy_config(path=CONFIG_PATH):

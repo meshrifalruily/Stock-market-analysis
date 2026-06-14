@@ -15,53 +15,84 @@ def filter_main_market(df, symbol_col="symbol"):
     return filtered
 
 def add_hybrid_scores(day_data):
+    """ترتيب الفرص وفق منطق "شراء الانخفاض في اتجاه صاعد".
+
+    اكتشف بحث IC للعوامل أن سوق تاسي قصير المدى انعكاسي (mean-reversion)، لذا:
+      - التوقيت يعتمد على درجة الانعكاس (الأكثر تشبّعاً بيعياً = أولوية للارتداد).
+      - الاتجاه المتوسط (price_vs_sma_50 الموجب) عامل مساعد لا مطارد للقمم.
+    أُزيلت مكوّنات الزخم القديمة (return_5d، prob_win) لأنها ذات IC سالب.
+    """
     day_data = day_data.copy()
-    trend_score = (
-        day_data.get("price_vs_sma_50", 0).fillna(0)
-        + day_data.get("return_5d", 0).fillna(0)
-        + (0.01 * day_data.get("tv_adx", 0).fillna(0))
+    # توقيت الدخول الانعكاسي (الإشارة الأقوى).
+    if "reversal_score" in day_data.columns:
+        reversal_timing = day_data["reversal_score"].fillna(0.5)
+    else:
+        # رجوع آمن إن لم تُحسب الدرجة: ننفي عائد 5 أيام (المتراجع مرشّح للارتداد).
+        reversal_timing = 0.5 - day_data.get("return_5d", pd.Series(0.0, index=day_data.index)).fillna(0)
+    medium_trend = day_data.get("price_vs_sma_50", pd.Series(0.0, index=day_data.index)).fillna(0).clip(lower=0)
+    risk_penalty = day_data.get("volatility_20d", pd.Series(0.0, index=day_data.index)).fillna(0).abs()
+    sector_alpha = day_data.get("sector_relative_return_1d", pd.Series(0.0, index=day_data.index)).fillna(0)
+
+    day_data["hybrid_score"] = (
+        1.0 * reversal_timing
+        + 0.5 * medium_trend
+        + 0.3 * sector_alpha
+        - 0.5 * risk_penalty
     )
-    risk_penalty = day_data.get("volatility_20d", 0).fillna(0).abs()
-    sector_alpha = day_data.get("sector_relative_return_1d", 0).fillna(0)
-    prob_component = day_data.get("prob_win", 0.5).fillna(0.5) - 0.5
-    day_data["hybrid_score"] = trend_score + sector_alpha - risk_penalty + (0.15 * prob_component)
     day_data["rank"] = day_data["hybrid_score"].rank(ascending=False, method="first")
     return day_data
 
 def entry_candidates(day_data, current_symbols, config):
-    next_return = day_data.get("predicted_next_return", pd.Series(0.0, index=day_data.index))
-    return day_data[
+    """ترشيح الدخول وفق "شراء الانخفاض في اتجاه صاعد" (مبني على بحث IC).
+
+    منطق مُصحَّح: نملك السهم في اتجاه متوسط صاعد (close>sma_50, momentum_20d>0)
+    لكن ندخل عند تراجع قصير المدى (أعلى نصف تشبّعاً بيعياً) بدل مطاردة القمم.
+    أُزيلت بوابة prob_win الصارمة لأن نماذج الزخم ذات IC سالب، ولأن المعايرة
+    ضغطت الاحتمالات دون العتبة القديمة فكانت تُفرّغ الترشيح بالكامل.
+    """
+    idx = day_data.index
+    next_return = day_data.get("predicted_next_return", pd.Series(0.0, index=idx))
+    sma50 = day_data.get("sma_50", day_data["close"])
+    mask = (
         (~day_data["symbol"].isin(current_symbols)) &
-        (day_data["prob_win"] >= config["buy_prob_threshold"]) &
         (day_data["rank"] <= config["max_entry_rank"]) &
-        (day_data["return_5d"].between(config["min_entry_return_5d"], config["max_entry_return_5d"])) &
+        (day_data["close"] > sma50) &                                   # اتجاه متوسط صاعد
+        (day_data["return_5d"] <= config["max_entry_return_5d"]) &      # لا نطارد القمم
         (next_return >= config.get("min_predicted_next_return", 0.0)) &
-        (day_data["rsi"].between(config["min_entry_rsi"], config["max_entry_rsi"])) &
-        (day_data["close"] > day_data["sma_20"]) &
-        (day_data["tv_adx"] >= config["min_entry_adx"])
-    ].sort_values("rank")
+        (day_data["rsi"] <= config["max_entry_rsi"])                    # نتجنّب التشبّع الشرائي فقط
+    )
+    # توقيت انعكاسي: نشترط أن يكون السهم في النصف الأكثر تشبّعاً بيعياً اليوم.
+    if "reversal_score" in day_data.columns:
+        mask = mask & (day_data["reversal_score"] >= day_data["reversal_score"].median())
+    # زخم متوسط المدى موجب (يُملك الرابح، يُشترى عند انخفاضه).
+    if "momentum_20d" in day_data.columns:
+        mask = mask & (day_data["momentum_20d"].fillna(0) > 0)
+    # فلتر نظام السوق: لا ندخل صفقات انعكاسية في هبوط قوي (سكين هابط).
+    if "regime_ok" in day_data.columns:
+        mask = mask & (day_data["regime_ok"].fillna(1.0) > 0.5)
+    return day_data[mask].sort_values("rank")
 
 def entry_diagnostics(row, config, market_breadth=None):
+    """أسباب رفض الدخول وفق منطق "شراء الانخفاض في اتجاه صاعد"."""
     reasons = []
     if market_breadth is not None and market_breadth < config["min_entry_market_breadth"]:
         reasons.append("صحة السوق أقل من شرط الدخول")
     if row.get("avg_traded_value_20d", 0) < config["min_avg_traded_value"]:
         reasons.append("السيولة أقل من الحد المطلوب")
-    if row.get("prob_win", 0) < config["buy_prob_threshold"]:
-        reasons.append("احتمالية التفوق الأسبوعي غير كافية")
-    if row.get("rank", 999) > config["max_entry_rank"]:
-        reasons.append("ترتيب الاستراتيجية خارج أفضل الفرص")
-    if not (config["min_entry_return_5d"] <= row.get("return_5d", 0) <= config["max_entry_return_5d"]):
-        reasons.append("حركة آخر 5 أيام خارج النطاق المقبول")
+    diagnostic_rank = row.get("entry_rank", row.get("rank", 999))
+    if diagnostic_rank > config["max_entry_rank"]:
+        reasons.append("ترتيب الفرصة الانعكاسية خارج الأفضل")
+    if row.get("close", 0) <= row.get("sma_50", 0):
+        reasons.append("ليس في اتجاه متوسط صاعد (دون متوسط 50)")
+    if row.get("momentum_20d", 0) <= 0:
+        reasons.append("زخم 20 يوم غير موجب")
+    if row.get("return_5d", 0) > config["max_entry_return_5d"]:
+        reasons.append("ارتفع كثيراً مؤخراً (مطاردة قمة)")
+    if row.get("rsi", 50) > config["max_entry_rsi"]:
+        reasons.append("تشبّع شرائي (RSI مرتفع)")
     if row.get("predicted_next_return", 0) < config.get("min_predicted_next_return", 0.0):
         reasons.append("توقع الغد سلبي")
-    if not (config["min_entry_rsi"] <= row.get("rsi", 50) <= config["max_entry_rsi"]):
-        reasons.append("RSI خارج نطاق الدخول")
-    if row.get("close", 0) <= row.get("sma_20", 0):
-        reasons.append("السعر دون متوسط 20 يوم")
-    if row.get("tv_adx", 0) < config["min_entry_adx"]:
-        reasons.append("قوة الاتجاه ADX غير كافية")
-    return "، ".join(reasons[:3]) if reasons else "مستوفي لشروط الدخول"
+    return "، ".join(reasons[:3]) if reasons else "مستوفي لشروط الدخول (انخفاض في صعود)"
 
 def summarize_returns(returns):
     returns = pd.Series(returns).replace([np.inf, -np.inf], np.nan).fillna(0)

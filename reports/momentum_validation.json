@@ -1,0 +1,50 @@
+{
+  "horizon": 60,
+  "top_pct": 0.1,
+  "use_regime": true,
+  "strat_total": 1.3232,
+  "market_total": 0.3098,
+  "strat_sharpe": 0.52,
+  "alpha_sharpe": 0.61,
+  "win_vs_market": 0.5,
+  "positive_alpha_years": 5,
+  "total_years": 9,
+  "per_year": {
+    "2018": {
+      "strat": 0.0225,
+      "market": -0.0192
+    },
+    "2019": {
+      "strat": 0.1475,
+      "market": 0.0748
+    },
+    "2020": {
+      "strat": 0.8344,
+      "market": 0.4063
+    },
+    "2021": {
+      "strat": 0.3713,
+      "market": 0.2456
+    },
+    "2022": {
+      "strat": 0.0059,
+      "market": -0.1818
+    },
+    "2023": {
+      "strat": 0.1529,
+      "market": 0.1668
+    },
+    "2024": {
+      "strat": -0.1694,
+      "market": -0.1257
+    },
+    "2025": {
+      "strat": -0.1833,
+      "market": -0.163
+    },
+    "2026": {
+      "strat": 0.0006,
+      "market": 0.0153
+    }
+  }
+}

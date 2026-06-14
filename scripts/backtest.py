@@ -4,6 +4,10 @@ import joblib
 import os
 import sys
 import warnings
+
+# فترة الاختبار العكسي بالأيام — قابلة للتمديد عبر متغير البيئة.
+# الافتراضي 365 يوماً (سنة كاملة) بدل 180 لزيادة الدلالة الإحصائية.
+BACKTEST_LOOKBACK_DAYS = int(os.getenv("TASI_BACKTEST_DAYS", "365"))
 import matplotlib
 matplotlib.use("Agg")
 import quantstats as qs
@@ -72,10 +76,11 @@ def run_backtest(processed_file_path, model_path, features_path):
     features = joblib.load(features_path)
     target = 'target_alpha_weekly' # استهداف المتفوقين أسبوعياً
     
-    # الاختبار العكسي لآخر 6 أشهر
+    # الاختبار العكسي للفترة المحددة (افتراضياً سنة كاملة)
     max_date = df['date'].max()
-    start_date = max_date - pd.Timedelta(days=180)
+    start_date = max_date - pd.Timedelta(days=BACKTEST_LOOKBACK_DAYS)
     test_df = df[df['date'] >= start_date].copy()
+    print(f"فترة الاختبار العكسي: {BACKTEST_LOOKBACK_DAYS} يوماً (من {start_date.date()} إلى {max_date.date()}).")
 
     dates = sorted(test_df['date'].unique())
     portfolio_value = 100.0 
@@ -159,12 +164,24 @@ def run_backtest(processed_file_path, model_path, features_path):
             prob_val = stock_current['prob_win'].values[0]
             rank_val = stock_current['rank'].values[0]
             days_held = info.get('days_held', 0) + 1
-            
+
+            # خروج ذكي للانعكاس: العودة للوسط. اشترينا تراجعاً قصير المدى، فنجني
+            # الربح عند ارتداد السعر فوق متوسطه القصير (sma_20) ونحن في ربح —
+            # هذا يلتقط الارتداد المتوقّع بدل انتظار هدف ATR ثابت قد لا يتحقّق.
+            sma20_now = stock_current['sma_20'].values[0] if 'sma_20' in stock_current.columns else np.nan
+            reverted_to_mean = (
+                not np.isnan(sma20_now)
+                and curr_price >= sma20_now
+                and curr_price > info['entry_price']
+            )
+
+            # خروج مناسب للانعكاس: زمني/مخاطر/عودة-للوسط. أُزيل البيع المبكر المبني
+            # على احتمال النموذج (IC سالب)، لأنه يقصّ الرابحين ويبقي الخاسرين.
             should_sell = (curr_price < info['stop_loss']) or \
                           (curr_price > info['take_profit']) or \
+                          reverted_to_mean or \
                           (market_breadth < config["market_breadth_exit"]) or \
-                          (days_held >= config["max_hold_days"]) or \
-                          (days_held >= 2 and (rank_val > config["max_entry_rank"] or prob_val < config["sell_prob_threshold"]))
+                          (days_held >= config["max_hold_days"])
 
             if should_sell:
                 daily_portfolio_return -= (COMMISSION + SLIPPAGE) * weight
@@ -221,9 +238,21 @@ def run_backtest(processed_file_path, model_path, features_path):
     perf_df = pd.DataFrame(portfolio_history).set_index('date')
     perf_df.index = pd.to_datetime(perf_df.index).tz_localize(None)
     
-    benchmark_df = df[df['symbol'] == '1120.SR'][['date', 'daily_return']].copy()
-    benchmark_df['date'] = pd.to_datetime(benchmark_df['date']).dt.tz_localize(None)
-    benchmark = benchmark_df.set_index('date')['daily_return']
+    # المعيار المرجعي = مؤشر السوق الحقيقي وليس سهماً منفرداً.
+    # نفضّل مؤشر تاسي الفعلي (macro_tasi_proxy) إن توفر، وإلا نبني مؤشراً
+    # متساوي الأوزان من متوسط عوائد جميع أسهم السوق الرئيسي يومياً.
+    if 'macro_tasi_proxy' in df.columns and df['macro_tasi_proxy'].notna().any():
+        tasi_index = (
+            df.dropna(subset=['macro_tasi_proxy'])
+            .groupby('date')['macro_tasi_proxy'].first()
+            .sort_index()
+        )
+        benchmark = tasi_index.pct_change().fillna(0)
+        print("المعيار المرجعي: مؤشر تاسي الفعلي (macro_tasi_proxy).")
+    else:
+        benchmark = df.groupby('date')['daily_return'].mean().sort_index()
+        print("المعيار المرجعي: مؤشر تاسي تقريبي متساوي الأوزان (متوسط عوائد السوق).")
+    benchmark.index = pd.to_datetime(benchmark.index).tz_localize(None)
     
     perf_df = perf_df[~perf_df.index.duplicated(keep='first')]
     benchmark = benchmark[~benchmark.index.duplicated(keep='first')]
@@ -235,18 +264,30 @@ def run_backtest(processed_file_path, model_path, features_path):
     if returns_series.std() == 0:
         returns_series = returns_series + np.random.normal(0, 1e-10, len(returns_series))
 
-    print("\n--- نتائج الاختبار العكسي (Alpha V6.0 - Adaptive) ---")
+    print("\n--- استراتيجية الانعكاس قصير المدى (مرجعية تشخيصية فقط) ---")
+    print("⚠️ هذه ليست الاستراتيجية الموصى بها — أُثبت أنها لا تتغلّب على التكاليف.")
     print(f"قيمة المحفظة النهائية: {portfolio_value:.2f}")
     print(f"إجمالي العائد الصافي: {((portfolio_value / 100.0) - 1) * 100:.2f}%")
     summary = summarize_returns(returns_series)
     print(f"شارب: {summary['sharpe']:.2f} | أقصى هبوط: {summary['max_drawdown'] * 100:.2f}% | أيام النشاط: {summary['active_days']}")
-    
+
     if not os.path.exists("reports"): os.makedirs("reports")
     try:
-        qs.reports.html(returns_series, benchmark=benchmark_series, output='reports/tasi_ai_backtest_report.html')
+        qs.reports.html(returns_series, benchmark=benchmark_series, output='reports/tasi_reversal_reference_report.html')
     except: pass
-    
-    perf_df.to_csv("data/backtest_results.csv")
+
+    # نكتب مرجع الانعكاس في ملف منفصل حتى لا يطغى على الباك تست الرئيسي (الزخم).
+    perf_df.to_csv("data/backtest_reversal_reference.csv")
 
 if __name__ == "__main__":
-    run_backtest("data/tasi_processed.csv", "models/tasi_rf_model_weekly.joblib", "models/feature_names.joblib")
+    # الباك تست الرئيسي = استراتيجية الزخم الموصى بها (يكتب data/backtest_results.csv).
+    from scripts.momentum_strategy import save_validation_report
+    print("=== الباك تست الرئيسي: استراتيجية الزخم طويلة الأفق (الموصى بها) ===")
+    res = save_validation_report("data/tasi_processed.csv")
+    if res:
+        print(f"إجمالي العائد الصافي: {res['strat_total']*100:.2f}%  |  السوق: {res['market_total']*100:.2f}%  "
+              f"|  Alpha-Sharpe: {res['alpha_sharpe']}  |  ألفا موجب: {res['positive_alpha_years']}/{res['total_years']} سنة")
+
+    # استراتيجية الانعكاس كمرجع تشخيصي فقط (بطيئة) — تُشغَّل عند الطلب الصريح.
+    if os.getenv("TASI_RUN_REVERSAL_BACKTEST", "0") == "1":
+        run_backtest("data/tasi_processed.csv", "models/tasi_rf_model_weekly.joblib", "models/feature_names.joblib")

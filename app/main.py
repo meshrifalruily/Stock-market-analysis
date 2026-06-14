@@ -8,13 +8,24 @@ import joblib
 import os
 import subprocess
 import sys
-from datetime import datetime
-from typing import List, Dict
+import logging
+import httpx
+import threading
+from datetime import datetime, timedelta
+from typing import List, Dict, Optional
 from scripts.company_names import get_arabic_company_name
 from scripts.paper_portfolio import reset_portfolio, sync_portfolio_with_recommendations
 from scripts.strategy_config import load_strategy_config
 from scripts.strategy_rules import add_hybrid_scores, entry_diagnostics, filter_main_market
+from scripts.momentum_strategy import get_momentum_picks
 import json
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="منصة تاسي الذكية", description="منصة تحليل احتمالي لأسهم السوق السعودي الرئيسي")
 
@@ -30,9 +41,11 @@ FEATURES_PATH = os.path.join(ROOT_DIR, "models/feature_names.joblib")
 FEATURE_MEDIANS_PATH = os.path.join(ROOT_DIR, "models/feature_medians.joblib")
 REGRESSION_FEATURES_PATH = os.path.join(ROOT_DIR, "models/regression_feature_names.joblib")
 REGRESSION_FEATURE_MEDIANS_PATH = os.path.join(ROOT_DIR, "models/regression_feature_medians.joblib")
+REGRESSION_CONFORMAL_PATH = os.path.join(ROOT_DIR, "models/regression_conformal.joblib")
 BACKTEST_PATH = os.path.join(ROOT_DIR, "data/backtest_results.csv")
 PAPER_PORTFOLIO_PATH = os.path.join(ROOT_DIR, "data/paper_portfolio.json")
 RECOMMENDATION_LOG_PATH = os.path.join(ROOT_DIR, "data/recommendation_log.json")
+MOMENTUM_REPORT_PATH = os.path.join(ROOT_DIR, "reports/momentum_validation.json")
 
 HEATMAP_LIMIT = int(os.getenv("TASI_HEATMAP_LIMIT", "60"))
 MARKET_SCOPE_LABEL = "السوق السعودي الرئيسي فقط"
@@ -44,25 +57,44 @@ CONFIDENCE_THRESHOLD_MEDIUM = 0.70
 MARKET_CLOSE_HOUR = int(os.getenv("TASI_MARKET_CLOSE_HOUR", "15"))
 MARKET_CLOSE_MINUTE = int(os.getenv("TASI_MARKET_CLOSE_MINUTE", "20"))
 
+# تيليجرام
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+
+# Cache للنماذج والبيانات (تُحمَّل مرة واحدة)
+_assets_cache: dict = {}
+_assets_lock = threading.Lock()
+
+# Cache لنتائج التنبؤات (تُحسَب مرة كل 5 دقائق)
+_intelligence_cache: Optional[List[Dict]] = None
+_intelligence_cache_time: Optional[datetime] = None
+_intelligence_cache_ttl = timedelta(minutes=5)
+_intelligence_lock = threading.Lock()
+
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 
-def load_system_assets():
+def _load_assets_from_disk():
+    """تحميل النماذج والبيانات من الديسك — تُستدعى مرة واحدة فقط."""
     if not all(os.path.exists(p) for p in [MODEL_DAILY_PATH, MODEL_WEEKLY_PATH, DATA_PATH]):
-        return None, None, None, None, None, None, None, None, None
+        logger.warning("ملفات النماذج أو البيانات غير موجودة — تحقق من المسارات.")
+        return None
     try:
-        m_daily = joblib.load(MODEL_DAILY_PATH)
-        m_weekly = joblib.load(MODEL_WEEKLY_PATH)
-        m_medium = joblib.load(MODEL_MEDIUM_PATH) if os.path.exists(MODEL_MEDIUM_PATH) else None
-        m_regression = joblib.load(REGRESSION_NEXT_DAY_PATH) if os.path.exists(REGRESSION_NEXT_DAY_PATH) else None
-        features = joblib.load(FEATURES_PATH)
-        feature_medians = joblib.load(FEATURE_MEDIANS_PATH) if os.path.exists(FEATURE_MEDIANS_PATH) else None
-        regression_features = joblib.load(REGRESSION_FEATURES_PATH) if os.path.exists(REGRESSION_FEATURES_PATH) else None
-        regression_feature_medians = (
-            joblib.load(REGRESSION_FEATURE_MEDIANS_PATH)
-            if os.path.exists(REGRESSION_FEATURE_MEDIANS_PATH)
-            else None
-        )
+        assets = {
+            "m_daily": joblib.load(MODEL_DAILY_PATH),
+            "m_weekly": joblib.load(MODEL_WEEKLY_PATH),
+            "m_medium": joblib.load(MODEL_MEDIUM_PATH) if os.path.exists(MODEL_MEDIUM_PATH) else None,
+            "m_regression": joblib.load(REGRESSION_NEXT_DAY_PATH) if os.path.exists(REGRESSION_NEXT_DAY_PATH) else None,
+            "features": joblib.load(FEATURES_PATH),
+            "feature_medians": joblib.load(FEATURE_MEDIANS_PATH) if os.path.exists(FEATURE_MEDIANS_PATH) else None,
+            "regression_features": joblib.load(REGRESSION_FEATURES_PATH) if os.path.exists(REGRESSION_FEATURES_PATH) else None,
+            "regression_feature_medians": (
+                joblib.load(REGRESSION_FEATURE_MEDIANS_PATH) if os.path.exists(REGRESSION_FEATURE_MEDIANS_PATH) else None
+            ),
+            "conformal": (
+                joblib.load(REGRESSION_CONFORMAL_PATH) if os.path.exists(REGRESSION_CONFORMAL_PATH) else None
+            ),
+        }
         df = pd.read_csv(DATA_PATH)
         df['date'] = pd.to_datetime(df['date']).dt.tz_localize(None)
         df = filter_main_market(df)
@@ -73,8 +105,46 @@ def load_system_assets():
             ),
             axis=1
         )
-        return df, m_daily, m_weekly, m_medium, features, feature_medians, m_regression, regression_features, regression_feature_medians
-    except: return None, None, None, None, None, None, None, None, None
+        assets["df"] = df
+        logger.info("تم تحميل النماذج والبيانات بنجاح — %d سهم.", len(df['symbol'].unique()))
+        return assets
+    except Exception as exc:
+        logger.error("فشل تحميل النماذج: %s", exc, exc_info=True)
+        return None
+
+
+def load_system_assets():
+    """يُرجع النماذج والبيانات من الـ cache (يُحمَّل مرة واحدة عند أول طلب)."""
+    global _assets_cache
+    with _assets_lock:
+        if not _assets_cache:
+            loaded = _load_assets_from_disk()
+            if loaded:
+                _assets_cache = loaded
+    if not _assets_cache:
+        return None, None, None, None, None, None, None, None, None
+    c = _assets_cache
+    return (
+        c["df"], c["m_daily"], c["m_weekly"], c["m_medium"],
+        c["features"], c["feature_medians"],
+        c["m_regression"], c["regression_features"], c["regression_feature_medians"],
+    )
+
+
+def get_conformal_bounds():
+    """يُرجع كميات conformal لفترة ثقة العائد، أو None إن لم تتوفر."""
+    return _assets_cache.get("conformal") if _assets_cache else None
+
+
+def invalidate_assets_cache():
+    """تفريغ الـ cache لإعادة تحميل النماذج والبيانات — تُستدعى بعد التحديث."""
+    global _assets_cache, _intelligence_cache, _intelligence_cache_time
+    with _assets_lock:
+        _assets_cache = {}
+    with _intelligence_lock:
+        _intelligence_cache = None
+        _intelligence_cache_time = None
+    logger.info("تم تفريغ الـ cache — سيُعاد التحميل عند الطلب التالي.")
 
 def prepare_prediction_features(rows, features, medians):
     X = rows[features].replace([np.inf, -np.inf], np.nan)
@@ -111,7 +181,13 @@ def get_prediction_base_date(df):
         return eligible_dates[-1]
     return dates[0]
 
-def build_trade_setup(current_price, atr, p_daily, p_weekly, p_medium, is_liquid=True, return_5d=0, hybrid_rank=999, rsi=50, adx=0, above_sma20=False, predicted_next_close=None, predicted_next_return=None):
+def build_trade_setup(current_price, atr, p_daily, p_weekly, p_medium, is_liquid=True, return_5d=0, hybrid_rank=999, rsi=50, adx=0, above_sma50=False, momentum_positive=False, predicted_next_close=None, predicted_next_return=None, entry_rank=9999):
+    """تحديد إعداد الصفقة وفق استراتيجية "شراء الانخفاض في اتجاه صاعد".
+
+    البوابة متّسقة مع entry_candidates: اتجاه متوسط صاعد + ترتيب انعكاسي + عدم
+    تشبّع شرائي + عدم مطاردة قمة. لا نعتمد على عتبة احتمال مطلقة (معايرة B1
+    ضغطت الاحتمالات، والنماذج ذات IC سالب)، بل على الترتيب الانعكاسي النسبي.
+    """
     valid_price = current_price > 0
     valid_atr = atr > 0 and valid_price
     atr_risk = atr if valid_atr else current_price * 0.02
@@ -119,23 +195,27 @@ def build_trade_setup(current_price, atr, p_daily, p_weekly, p_medium, is_liquid
     target_distance = STRATEGY_CONFIG["take_profit_atr_mult"] * stop_distance
 
     daily_target = predicted_next_close if valid_price and predicted_next_close and predicted_next_close > 0 else None
-    weekly_target = current_price + max(current_price * 0.03, target_distance) if valid_price and p_weekly > CONFIDENCE_THRESHOLD_WEEKLY else None
-    medium_target = current_price + max(current_price * 0.06, target_distance * 1.5) if valid_price and p_medium and p_medium > CONFIDENCE_THRESHOLD_MEDIUM else None
+    max_rank = STRATEGY_CONFIG["max_entry_rank"]
+    is_top_entry = entry_rank <= max_rank
+    weekly_target = current_price + max(current_price * 0.03, target_distance) if valid_price and is_top_entry else None
+    medium_target = current_price + max(current_price * 0.06, target_distance * 1.5) if valid_price and is_top_entry else None
 
     stop_price = max(0.01, current_price - stop_distance) if valid_price else 0
-    
-    # حماية ضد الشراء في القمة أو محاولة التقاط سكين هابط
-    is_not_overextended = STRATEGY_CONFIG["min_entry_return_5d"] <= return_5d <= STRATEGY_CONFIG["max_entry_return_5d"]
+
+    # شروط الدخول الانعكاسي (متطابقة مع entry_candidates): الترتيب يُحسب ضمن
+    # العالم المؤهّل (entry_rank) لا عالمياً، فالأكثر تشبّعاً بيعياً ضمن الصاعدين.
+    is_not_overextended = return_5d <= STRATEGY_CONFIG["max_entry_return_5d"]
+    not_overbought = rsi <= STRATEGY_CONFIG["max_entry_rsi"]
     min_next_return = STRATEGY_CONFIG.get("min_predicted_next_return", 0.0)
     has_safe_next_day_forecast = predicted_next_return is None or predicted_next_return >= min_next_return
     passes_technical_gate = (
-        hybrid_rank <= STRATEGY_CONFIG["max_entry_rank"] and
-        STRATEGY_CONFIG["min_entry_rsi"] <= rsi <= STRATEGY_CONFIG["max_entry_rsi"] and
-        adx >= STRATEGY_CONFIG["min_entry_adx"] and
-        above_sma20
+        is_top_entry and
+        not_overbought and
+        above_sma50 and
+        momentum_positive
     )
-    
-    is_actionable = bool(valid_price and is_liquid and is_not_overextended and has_safe_next_day_forecast and passes_technical_gate and (p_weekly > CONFIDENCE_THRESHOLD_WEEKLY))
+
+    is_actionable = bool(valid_price and is_liquid and is_not_overextended and has_safe_next_day_forecast and passes_technical_gate)
 
     if not valid_price:
         action = "بيانات سعر غير كافية"
@@ -144,19 +224,19 @@ def build_trade_setup(current_price, atr, p_daily, p_weekly, p_medium, is_liquid
         action = "سيولة منخفضة"
         action_class = "avoid"
     elif not is_not_overextended:
-        action = "متضخم سعرياً"
+        action = "متضخم سعرياً (مطاردة قمة)"
         action_class = "avoid"
     elif not has_safe_next_day_forecast:
         action = "انتظار: توقع الغد سلبي"
         action_class = "avoid"
-    elif is_actionable and p_weekly > 0.60:
-        action = "شراء عالي الجودة"
+    elif is_actionable and entry_rank <= STRATEGY_CONFIG["max_positions"]:
+        action = "شراء انعكاسي عالي الأولوية"
         action_class = "buy"
     elif is_actionable:
-        action = "شراء مشروط"
+        action = "شراء انعكاسي مشروط"
         action_class = "buy"
-    elif p_daily > CONFIDENCE_THRESHOLD_DAILY:
-        action = "مراقبة زخم يومي"
+    elif above_sma50 and momentum_positive and not_overbought:
+        action = "مراقبة: انتظار انخفاض للدخول"
         action_class = "watch"
     else:
         action = "انتظار"
@@ -173,6 +253,17 @@ def build_trade_setup(current_price, atr, p_daily, p_weekly, p_medium, is_liquid
     }
 
 def get_market_intelligence(prediction_date_override=None):
+    global _intelligence_cache, _intelligence_cache_time
+    # إعادة النتيجة من الـ cache إذا كانت ضمن المدة المسموحة ولم يُحدَّد تاريخ مخصص
+    if prediction_date_override is None:
+        with _intelligence_lock:
+            if (
+                _intelligence_cache is not None
+                and _intelligence_cache_time is not None
+                and datetime.now() - _intelligence_cache_time < _intelligence_cache_ttl
+            ):
+                return _intelligence_cache
+
     df, m_daily, m_weekly, m_medium, features, feature_medians, m_regression, regression_features, regression_feature_medians = load_system_assets()
     if df is None: return []
 
@@ -195,6 +286,7 @@ def get_market_intelligence(prediction_date_override=None):
     latest_rows['p_daily'] = m_daily.predict_proba(X_all)[:, 1]
     latest_rows['p_weekly'] = m_weekly.predict_proba(X_all)[:, 1]
     latest_rows['p_medium'] = m_medium.predict_proba(X_all)[:, 1] if m_medium else 0.5
+    conformal = get_conformal_bounds()
     if m_regression is not None and regression_features:
         X_regression = prepare_prediction_features(latest_rows, regression_features, regression_feature_medians)
         latest_rows['predicted_next_return'] = np.clip(m_regression.predict(X_regression), -0.2, 0.2)
@@ -202,14 +294,47 @@ def get_market_intelligence(prediction_date_override=None):
             latest_rows['close'].replace(0, np.nan) * (1 + latest_rows['predicted_next_return']),
             0.01
         )
+        # D2: فترة ثقة conformal للسعر المتوقع (تغطية ~80%).
+        if conformal and conformal.get("qhat_80"):
+            qhat = conformal["qhat_80"]
+            base_close = latest_rows['close'].replace(0, np.nan)
+            latest_rows['predicted_close_low'] = np.maximum(
+                base_close * (1 + latest_rows['predicted_next_return'] - qhat), 0.01
+            )
+            latest_rows['predicted_close_high'] = np.maximum(
+                base_close * (1 + latest_rows['predicted_next_return'] + qhat), 0.01
+            )
+        else:
+            latest_rows['predicted_close_low'] = np.nan
+            latest_rows['predicted_close_high'] = np.nan
         latest_rows['p_daily'] = (0.5 + latest_rows['predicted_next_return'].fillna(0) * 10).clip(0, 1)
     else:
         latest_rows['predicted_next_close'] = np.nan
         latest_rows['predicted_next_return'] = np.nan
+        latest_rows['predicted_close_low'] = np.nan
+        latest_rows['predicted_close_high'] = np.nan
     latest_rows['prob_win'] = latest_rows['p_weekly']
     latest_rows = add_hybrid_scores(latest_rows)
     latest_rows['hybrid_rank'] = latest_rows['rank']
-    
+
+    # ترتيب الدخول الانعكاسي ضمن العالم المؤهّل فقط (اتجاه متوسط صاعد + غير متشبّع).
+    # هذا يطابق الاستراتيجية المتحقّق منها: نرتّب الانعكاس داخل الأسهم الصاعدة،
+    # لأن الترتيب العالمي يضع المتشبّعين بيعياً في اتجاه هابط بالقمة فيتعارض مع فلتر الصعود.
+    sma50 = latest_rows['sma_50'] if 'sma_50' in latest_rows.columns else latest_rows['close']
+    mom20 = latest_rows['momentum_20d'] if 'momentum_20d' in latest_rows.columns else pd.Series(0.0, index=latest_rows.index)
+    eligible_mask = (
+        (latest_rows['close'] > sma50)
+        & (mom20.fillna(0) > 0)
+        & (latest_rows['rsi'].fillna(50) <= STRATEGY_CONFIG['max_entry_rsi'])
+        & (latest_rows['return_5d'].fillna(0) <= STRATEGY_CONFIG['max_entry_return_5d'])
+        & (latest_rows['avg_traded_value_20d'].fillna(0) >= STRATEGY_CONFIG['min_avg_traded_value'])
+    )
+    latest_rows['entry_rank'] = 9999.0
+    if eligible_mask.any():
+        latest_rows.loc[eligible_mask, 'entry_rank'] = (
+            latest_rows.loc[eligible_mask, 'hybrid_score'].rank(ascending=False, method='first')
+        )
+
     for _, row in latest_rows.iterrows():
         symbol = row['symbol']
         name = row['اسم الشركة']
@@ -245,9 +370,11 @@ def get_market_intelligence(prediction_date_override=None):
             hybrid_rank=float(row['hybrid_rank']),
             rsi=float(row['rsi']) if 'rsi' in latest_rows.columns and not pd.isna(row['rsi']) else 50,
             adx=float(row['tv_adx']) if 'tv_adx' in latest_rows.columns and not pd.isna(row['tv_adx']) else 0,
-            above_sma20=bool(row['close'] > row['sma_20']) if 'sma_20' in latest_rows.columns else False,
+            above_sma50=bool(row['close'] > row['sma_50']) if 'sma_50' in latest_rows.columns and not pd.isna(row['sma_50']) else False,
+            momentum_positive=bool(row['momentum_20d'] > 0) if 'momentum_20d' in latest_rows.columns and not pd.isna(row['momentum_20d']) else False,
             predicted_next_close=predicted_next_close,
-            predicted_next_return=predicted_next_return
+            predicted_next_return=predicted_next_return,
+            entry_rank=float(row['entry_rank']) if 'entry_rank' in latest_rows.columns and not pd.isna(row['entry_rank']) else 9999
         )
         
         # تعديل الحالة بناءً على وضع السوق
@@ -279,6 +406,8 @@ def get_market_intelligence(prediction_date_override=None):
             'sentiment': round(sentiment_val * 100, 1),
             'predicted_daily': round((predicted_next_return or 0) * 100, 2), # العائد المتوقع للغد
             'predicted_next_close': round(predicted_next_close, 2) if predicted_next_close is not None else None,
+            'predicted_close_low': round(float(row['predicted_close_low']), 2) if 'predicted_close_low' in latest_rows.columns and not pd.isna(row['predicted_close_low']) else None,
+            'predicted_close_high': round(float(row['predicted_close_high']), 2) if 'predicted_close_high' in latest_rows.columns and not pd.isna(row['predicted_close_high']) else None,
             'predicted_weekly': round(p_weekly * 100, 1), # ثقة الأسبوعي
             'predicted_medium': round(p_medium * 100, 1), # ثقة أسبوعين
             'entry': round(current_price, 2),
@@ -298,11 +427,16 @@ def get_market_intelligence(prediction_date_override=None):
             'hybrid_rank': int(row['hybrid_rank'])
         })
     
-    return sorted(
+    result = sorted(
         latest_data,
         key=lambda x: (bool(x['is_actionable']), -x['hybrid_rank'], x['predicted_weekly'] or 0.0),
         reverse=True
     )
+    if prediction_date_override is None:
+        with _intelligence_lock:
+            _intelligence_cache = result
+            _intelligence_cache_time = datetime.now()
+    return result
 
 def load_recommendation_log():
     if not os.path.exists(RECOMMENDATION_LOG_PATH):
@@ -582,10 +716,26 @@ async def read_root(request: Request):
 
     data_date = df['date'].max().strftime('%Y-%m-%d') if df is not None else "N/A"
     
+    # الباك تست المعروض = استراتيجية الزخم الموصى بها (backtest_results.csv يكتبه
+    # momentum_strategy.py)، مع مقارنة بالسوق من تقرير التحقّق.
     backtest = None
     if os.path.exists(BACKTEST_PATH):
         bt_df = pd.read_csv(BACKTEST_PATH)
-        backtest = {'return': round(float(bt_df['value'].iloc[-1] - 100.0), 2)}
+        backtest = {
+            'return': round(float(bt_df['value'].iloc[-1] - 100.0), 2),
+            'strategy': 'الزخم طويل الأفق',
+            'market_return': None,
+            'positive_years': None,
+        }
+        if os.path.exists(MOMENTUM_REPORT_PATH):
+            try:
+                with open(MOMENTUM_REPORT_PATH, "r", encoding="utf-8") as f:
+                    mom = json.load(f)
+                backtest['market_return'] = round(float(mom.get('market_total', 0)) * 100, 1)
+                backtest['positive_years'] = f"{mom.get('positive_alpha_years', '?')}/{mom.get('total_years', '?')}"
+                backtest['alpha_sharpe'] = mom.get('alpha_sharpe')
+            except (OSError, json.JSONDecodeError, TypeError):
+                pass
 
     market_breadth = intelligence[0]['market_breadth'] if intelligence else 0.5
     prediction_date = intelligence[0].get('prediction_date') if intelligence else data_date
@@ -612,6 +762,42 @@ async def read_root(request: Request):
             "last_update": datetime.now().strftime("%H:%M")
         }
     )
+
+def get_momentum_intelligence():
+    """أقوى الأسهم زخماً حالياً + إحصاءات التحقّق التاريخي."""
+    df, *_ = load_system_assets()
+    if df is None:
+        return [], {}, None
+    prediction_date = get_prediction_base_date(df)
+    if prediction_date is None:
+        return [], {}, None
+    picks = get_momentum_picks(df, STRATEGY_CONFIG, prediction_date, top_n=15, use_regime=True)
+    validation = None
+    if os.path.exists(MOMENTUM_REPORT_PATH):
+        try:
+            with open(MOMENTUM_REPORT_PATH, "r", encoding="utf-8") as f:
+                validation = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            validation = None
+    return picks, prediction_date, validation
+
+
+@app.get("/momentum", response_class=HTMLResponse)
+async def momentum_page(request: Request):
+    picks, prediction_date, validation = get_momentum_intelligence()
+    return templates.TemplateResponse(
+        request=request, name="momentum.html",
+        context={
+            "request": request,
+            "picks": picks,
+            "validation": validation,
+            "prediction_date": prediction_date.strftime("%Y-%m-%d") if prediction_date is not None else "N/A",
+            "market_scope": MARKET_SCOPE_LABEL,
+            "horizon_days": 60,
+            "last_update": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        }
+    )
+
 
 @app.get("/recommendation-evaluations", response_class=HTMLResponse)
 async def recommendation_evaluations(request: Request):
@@ -696,9 +882,15 @@ async def stock_detail(request: Request, symbol: str):
 async def update_system(background_tasks: BackgroundTasks):
     def run():
         try:
+            # backtest.py صار ينتج الباك تست الرئيسي باستراتيجية الزخم الموصى بها
+            # (يكتب backtest_results.csv عبر momentum_strategy داخلياً).
             for s in ["fetch_data.py", "preprocess.py", "train_model.py", "backtest.py"]:
+                logger.info("تشغيل: %s", s)
                 subprocess.run([sys.executable, os.path.join(ROOT_DIR, f"scripts/{s}")], check=True)
-        except: pass
+            invalidate_assets_cache()
+            logger.info("اكتمل التحديث الشامل.")
+        except Exception as exc:
+            logger.error("فشل التحديث: %s", exc, exc_info=True)
     background_tasks.add_task(run)
     return {"status": "جاري التحديث الشامل للأنظمة في الخلفية..."}
 
@@ -706,6 +898,73 @@ async def update_system(background_tasks: BackgroundTasks):
 async def reset_paper_portfolio():
     reset_portfolio(path=PAPER_PORTFOLIO_PATH, initial_capital=1000.0)
     return {"status": "تمت إعادة المحفظة الافتراضية إلى 1,000 ريال."}
+
+
+# ─── تيليجرام ───────────────────────────────────────────────────────────────
+
+async def send_telegram_message(text: str) -> bool:
+    """يُرسل رسالة نصية عبر بوت تيليجرام. يُرجع True عند النجاح."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        logger.warning("تيليجرام غير مُهيأ — عيّن TELEGRAM_BOT_TOKEN و TELEGRAM_CHAT_ID في متغيرات البيئة.")
+        return False
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML"}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(url, json=payload)
+            resp.raise_for_status()
+            return True
+    except Exception as exc:
+        logger.error("فشل إرسال رسالة تيليجرام: %s", exc)
+        return False
+
+
+def _build_telegram_alert(stocks: list) -> str:
+    """يبني نص تنبيه مُنسَّق لأفضل الأسهم القابلة للتداول."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    lines = [f"<b>🔔 منصة تاسي الذكية — تنبيه فرص الشراء</b>", f"<i>{now}</i>", ""]
+    for i, s in enumerate(stocks[:5], 1):
+        action_icon = "✅" if s['action_class'] == "buy" else "👁"
+        lines.append(
+            f"{action_icon} <b>{i}. {s['company_name']} ({s['symbol']})</b>\n"
+            f"   السعر: {s['current_price']} ر.س | الهدف: {s.get('target_weekly') or '—'} ر.س | وقف: {s['stop']} ر.س\n"
+            f"   ثقة أسبوعية: {s['predicted_weekly']}% | {s['action']}\n"
+            f"   السبب: {s['reason']}"
+        )
+    return "\n".join(lines)
+
+
+@app.post("/api/telegram/alert")
+async def trigger_telegram_alert():
+    """يُرسل تنبيهاً فورياً بأفضل فرص الشراء عبر تيليجرام."""
+    intelligence = get_market_intelligence()
+    actionable = [s for s in intelligence if s['is_actionable']]
+    if not actionable:
+        watch = [s for s in intelligence if s['action_class'] == 'watch'][:3]
+        if watch:
+            msg = _build_telegram_alert(watch)
+            msg = msg.replace("تنبيه فرص الشراء", "تنبيه مراقبة السوق")
+        else:
+            msg = "لا توجد فرص شراء أو مراقبة حالياً في السوق الرئيسي."
+    else:
+        msg = _build_telegram_alert(actionable)
+
+    sent = await send_telegram_message(msg)
+    return {
+        "status": "تم الإرسال" if sent else "فشل الإرسال",
+        "actionable_count": len(actionable),
+        "configured": bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID),
+    }
+
+
+@app.get("/api/telegram/status")
+async def telegram_status():
+    """يُرجع حالة إعداد تيليجرام."""
+    return {
+        "configured": bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID),
+        "bot_token_set": bool(TELEGRAM_BOT_TOKEN),
+        "chat_id_set": bool(TELEGRAM_CHAT_ID),
+    }
 
 if __name__ == "__main__":
     import uvicorn

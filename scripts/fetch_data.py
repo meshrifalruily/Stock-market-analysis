@@ -331,7 +331,10 @@ def apply_latest_price_snapshot(df, ticker, symbol):
 
 def fetch_stock_data(symbol, info_dict, is_macro=False):
     latest_trade_day = latest_completed_saudi_trading_day()
-    start_date = latest_trade_day - pd.Timedelta(days=365*3)
+    # سنوات التاريخ قابلة للضبط — تاريخ أطول يغطّي أنظمة سوق متعددة (صعود/هبوط/تذبذب)
+    # ويعطي تحقّقاً أكثر دلالة لإشارة الانعكاس. الافتراضي 8 سنوات.
+    history_years = int(os.getenv("TASI_HISTORY_YEARS", "8"))
+    start_date = latest_trade_day - pd.Timedelta(days=365 * history_years)
     end_date = latest_trade_day + pd.Timedelta(days=1)  # yfinance end is exclusive.
     
     name = info_dict if is_macro else info_dict['name']
